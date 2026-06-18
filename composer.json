@@ -1,0 +1,50 @@
+{
+    "name": "meumouse/mds-php-sdk",
+    "description": "WordPress PHP SDK for the Modular Distribution Service (MDS): licensing, signed update checks, version rollback and anti-piracy for plugins and themes.",
+    "type": "library",
+    "license": "GPL-2.0-or-later",
+    "keywords": ["wordpress", "plugin", "theme", "updater", "license", "mds", "rollback"],
+    "homepage": "https://meumouse.com",
+    "authors": [
+        {
+            "name": "MeuMouse",
+            "homepage": "https://meumouse.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/meumouse/mds-php-sdk/issues",
+        "source": "https://github.com/meumouse/mds-php-sdk"
+    },
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*",
+        "ext-sodium": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "brain/monkey": "^2.6",
+        "php-stubs/wordpress-stubs": "^6.4",
+        "phpstan/phpstan": "^1.10",
+        "szepeviktor/phpstan-wordpress": "^1.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "MeuMouse\\MDS\\SDK\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MeuMouse\\MDS\\SDK\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse",
+        "keygen": "php bin/generate-keys.php"
+    },
+    "minimum-stability": "stable"
+}
