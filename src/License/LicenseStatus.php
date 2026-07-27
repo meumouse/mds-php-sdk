@@ -38,6 +38,7 @@ final class LicenseStatus {
 				'last_success_at' => 0,
 				'signed'          => false,
 				'message'         => '',
+				'extra'           => array(),
 			),
 			$state
 		);
@@ -99,5 +100,31 @@ final class LicenseStatus {
 	/** @return bool */
 	public function is_expired() {
 		return self::STATUS_EXPIRED === $this->status();
+	}
+
+	/**
+	 * Server-supplied fields beyond the ones this class models — plan, renewal
+	 * URL, support expiry, failure reason and anything the API adds later.
+	 *
+	 * The SDK does not interpret these; they exist so a product can render its
+	 * own license screen without a second round-trip.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function extra() {
+		return is_array( $this->state['extra'] ) ? $this->state['extra'] : array();
+	}
+
+	/**
+	 * Read a single extra field.
+	 *
+	 * @param string $key     Field name as returned by the API.
+	 * @param mixed  $default Value when the field is absent.
+	 * @return mixed
+	 */
+	public function get( $key, $default = null ) {
+		$extra = $this->extra();
+
+		return array_key_exists( $key, $extra ) ? $extra[ $key ] : $default;
 	}
 }

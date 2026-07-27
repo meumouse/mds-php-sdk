@@ -4,6 +4,19 @@ All notable changes to `mds-php-sdk` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `LicenseStatus::extra()` / `::get()` expose the fields the validate endpoint
+  returns beyond the ones the class models (plan, renewal URL, support expiry,
+  failure reason), so a product can render its own license screen without a
+  second round-trip. Persisted with the status, so they survive a grace-period
+  outage.
+
+### Changed
+- `Manager::validate()` now stores the server's `message` on the status instead
+  of discarding it.
+
 ## [1.0.0] - 2026-06-18
 
 ### Added

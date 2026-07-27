@@ -181,6 +181,12 @@ final class Manager {
 		$data = $response->data();
 		$now  = time();
 
+		// Everything the API returned beyond the fields modelled below is kept
+		// verbatim, so a product can render plan/renewal details from the same
+		// round-trip instead of querying again.
+		$extra = $data;
+		unset( $extra['valid'], $extra['license_status'], $extra['expires_at'] );
+
 		$status = new LicenseStatus(
 			array(
 				'status'          => isset( $data['license_status'] ) ? (string) $data['license_status'] : LicenseStatus::STATUS_ACTIVE,
@@ -190,7 +196,8 @@ final class Manager {
 				'checked_at'      => $now,
 				'last_success_at' => $now,
 				'signed'          => $response->is_signed(),
-				'message'         => '',
+				'message'         => isset( $data['message'] ) ? (string) $data['message'] : '',
+				'extra'           => $extra,
 			)
 		);
 
