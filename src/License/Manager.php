@@ -74,8 +74,15 @@ final class Manager {
 	public function activate( $key ) {
 		$key = $this->normalize_key( $key );
 
+		// `product_slug` identifies which product is activating. A seat is a *site*,
+		// so it does not affect the activation itself — under a bundle license every
+		// product shares one seat. It lets the server record this product's install
+		// straight away instead of waiting for the first heartbeat.
 		$body = array_merge(
-			array( 'license_key' => $key ),
+			array(
+				'license_key'  => $key,
+				'product_slug' => $this->product->slug(),
+			),
 			Environment::request_meta( $this->product )
 		);
 
@@ -112,6 +119,11 @@ final class Manager {
 	/**
 	 * Deactivate the current site's activation and forget the key locally.
 	 *
+	 * Under a bundle licence this releases only *this* product's hold on the
+	 * site: the seat stays with the other products of the bundle until the last
+	 * one leaves. That is why `product_slug` is sent — and required by the API
+	 * for a bundle key.
+	 *
 	 * Best-effort: a server-side failure still clears local state so the admin
 	 * can re-enter a key.
 	 *
@@ -125,8 +137,9 @@ final class Manager {
 				$this->client->post(
 					'/v2/licenses/deactivate',
 					array(
-						'license_key' => $key,
-						'domain'      => Environment::domain(),
+						'license_key'  => $key,
+						'domain'       => Environment::domain(),
+						'product_slug' => $this->product->slug(),
 					),
 					false
 				);

@@ -13,9 +13,31 @@ All notable changes to `mds-php-sdk` are documented here. The format follows
   second round-trip. Persisted with the status, so they survive a grace-period
   outage.
 
+- Bundle licences: a single key can now cover several products (e.g. "Clube M").
+  Nothing changes on the wire for a product — it keeps sending its own
+  `product_slug` and the same key simply validates for every product the bundle
+  grants. The validate response carries an additive `bundle` field
+  (`id`, `name`, `slug`, `products[]`), reachable through
+  `LicenseStatus::get( 'bundle' )`, so a plugin can show "Licensed via Clube M"
+  and list what is included.
+
 ### Changed
 - `Manager::validate()` now stores the server's `message` on the status instead
   of discarding it.
+- `Manager::activate()` sends `product_slug` alongside the `plugin_version` that
+  `Environment::request_meta()` already provided. The API **requires both when the
+  key is a bundle licence** — its products share one seat, so the request has to
+  say which product is activating — and keeps them optional for a single-product
+  licence. Older API versions ignore the extra field.
+
+- `Manager::deactivate()` sends `product_slug` too. Under a bundle licence this
+  releases only this product's hold on the site — the seat stays with the other
+  products until the last one leaves — so uninstalling one plugin no longer
+  deactivates its siblings. The API requires the field for a bundle key.
+
+  Consequence for consumers: a copy of the SDK older than this release cannot
+  activate or deactivate a bundle licence; it will get a `400`. Single-product
+  licences are unaffected.
 
 ## [1.0.0] - 2026-06-18
 
