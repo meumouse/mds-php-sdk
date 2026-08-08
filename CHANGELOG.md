@@ -1,56 +1,20 @@
-# Changelog
+Versão 1.1.0 (07/08/2026)
+* Recursos adicionados
+  - Licenças de bundle: uma única chave passa a cobrir vários produtos (ex.: "Clube M"). Nada muda no protocolo para o produto — ele continua enviando o próprio `product_slug` e a mesma chave simplesmente valida para todos os produtos que o bundle concede. A resposta de validação traz o campo aditivo `bundle` (`id`, `name`, `slug`, `products[]`), acessível por `LicenseStatus::get( 'bundle' )`, permitindo exibir "Licenciado via Clube M" e listar o que está incluso
+  - `LicenseStatus::extra()` / `::get()` expõem os campos que o endpoint de validação retorna além dos modelados pela classe (plano, URL de renovação, expiração do suporte, motivo da falha), para o produto renderizar a própria tela de licença sem uma segunda requisição. São persistidos junto com o status, então continuam disponíveis durante uma indisponibilidade no período de carência
+* Alterações
+  - `Manager::validate()` passa a armazenar a `message` retornada pelo servidor no status, em vez de descartá-la
+  - `Manager::activate()` envia `product_slug` junto do `plugin_version` que o `Environment::request_meta()` já fornecia. A API exige os dois quando a chave é uma licença de bundle — seus produtos compartilham um único assento, então a requisição precisa dizer qual produto está ativando — e mantém os campos opcionais para licenças de produto único. Versões antigas da API ignoram o campo extra
+  - `Manager::deactivate()` também envia `product_slug`. Em uma licença de bundle isso libera apenas o vínculo deste produto com o site — o assento permanece com os demais produtos até o último sair — de modo que desinstalar um plugin não desativa os outros. A API exige o campo para chaves de bundle. Consequência para os consumidores: uma cópia do SDK anterior a esta versão não consegue ativar nem desativar uma licença de bundle (recebe `400`); licenças de produto único não são afetadas
 
-All notable changes to `mds-php-sdk` are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/) and the project adheres to
-[Semantic Versioning](https://semver.org/).
-
-## [Unreleased]
-
-### Added
-- `LicenseStatus::extra()` / `::get()` expose the fields the validate endpoint
-  returns beyond the ones the class models (plan, renewal URL, support expiry,
-  failure reason), so a product can render its own license screen without a
-  second round-trip. Persisted with the status, so they survive a grace-period
-  outage.
-
-- Bundle licences: a single key can now cover several products (e.g. "Clube M").
-  Nothing changes on the wire for a product — it keeps sending its own
-  `product_slug` and the same key simply validates for every product the bundle
-  grants. The validate response carries an additive `bundle` field
-  (`id`, `name`, `slug`, `products[]`), reachable through
-  `LicenseStatus::get( 'bundle' )`, so a plugin can show "Licensed via Clube M"
-  and list what is included.
-
-### Changed
-- `Manager::validate()` now stores the server's `message` on the status instead
-  of discarding it.
-- `Manager::activate()` sends `product_slug` alongside the `plugin_version` that
-  `Environment::request_meta()` already provided. The API **requires both when the
-  key is a bundle licence** — its products share one seat, so the request has to
-  say which product is activating — and keeps them optional for a single-product
-  licence. Older API versions ignore the extra field.
-
-- `Manager::deactivate()` sends `product_slug` too. Under a bundle licence this
-  releases only this product's hold on the site — the seat stays with the other
-  products until the last one leaves — so uninstalling one plugin no longer
-  deactivates its siblings. The API requires the field for a bundle key.
-
-  Consequence for consumers: a copy of the SDK older than this release cannot
-  activate or deactivate a bundle licence; it will get a `400`. Single-product
-  licences are unaffected.
-
-## [1.0.0] - 2026-06-18
-
-### Added
-- Version-aware loader (`mds-sdk.php`) that boots the newest embedded copy and
-  avoids class collisions across plugins.
-- `SDK::register()` facade and per-product `Integration` container.
-- License lifecycle: activate / deactivate / heartbeat-validate with a
-  configurable grace period and multisite-aware option storage.
-- ed25519 response signature verification (`SignatureVerifier`) — the anti-piracy
-  core, rejecting unsigned/tampered/replayed responses for license-critical calls.
-- Plugin and theme updaters with transient-throttled, cron-gated update checks.
-- Version listing and rollback (downgrade) with capability + nonce protection.
-- Daily license heartbeat via WP-Cron with per-site jitter.
-- Reusable, override-friendly admin UI (license panel, rollback list, notices).
-- PHPUnit test suite and CI for PHP 7.4–8.3.
+Versão 1.0.0 (18/06/2026)
+* Recursos adicionados
+  - Carregador com reconhecimento de versão (`mds-sdk.php`), que inicializa a cópia embarcada mais recente e evita colisão de classes entre plugins
+  - Fachada `SDK::register()` e contêiner `Integration` por produto
+  - Ciclo de vida da licença: ativar / desativar / validar por heartbeat, com período de carência configurável e armazenamento de opções compatível com multisite
+  - Verificação de assinatura ed25519 das respostas (`SignatureVerifier`) — núcleo antipirataria, que rejeita respostas sem assinatura, adulteradas ou reenviadas nas chamadas críticas de licença
+  - Atualizadores de plugin e de tema, com verificação de atualização limitada por transient e disparada pelo cron
+  - Listagem de versões e rollback (downgrade), protegidos por capability e nonce
+  - Heartbeat diário da licença via WP-Cron, com jitter por site
+  - Interface administrativa reutilizável e sobrescrevível (painel de licença, lista de rollback, avisos)
+  - Suíte de testes PHPUnit e CI para PHP 7.4–8.3

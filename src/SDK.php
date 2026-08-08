@@ -18,7 +18,7 @@ defined( 'ABSPATH' ) || exit;
 final class SDK {
 
 	/** SemVer of the SDK; keep in sync with composer.json, mds-sdk.php, CHANGELOG. */
-	const VERSION = '1.0.0';
+	const VERSION = '1.1.0';
 
 	/** @var array<string,Integration> Registered integrations, keyed by slug. */
 	private static $integrations = array();
