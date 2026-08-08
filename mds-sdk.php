@@ -31,8 +31,8 @@
 defined( 'ABSPATH' ) || exit;
 
 // SemVer of THIS copy. Kept in sync with composer.json / CHANGELOG.md.
-$mds_sdk_this_version = '1.0.0';
-$mds_sdk_this_path    = __DIR__;
+$mds_sdk_this_version = '1.1.0';
+$mds_sdk_this_path = __DIR__;
 
 // Shared, class-free registry of every embedded copy that has been required.
 if ( ! isset( $GLOBALS['mds_sdk_registry'] ) || ! is_array( $GLOBALS['mds_sdk_registry'] ) ) {
