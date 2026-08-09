@@ -24,6 +24,7 @@ anti-piracy, all talking to the MDS API in a controlled, performance-friendly wa
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Configuration reference](#configuration-reference)
+- [Feature flags](#feature-flags)
 - [Licensing](#licensing)
 - [Bundle licenses](#bundle-licenses)
 - [Updates](#updates)
@@ -49,6 +50,7 @@ anti-piracy, all talking to the MDS API in a controlled, performance-friendly wa
 |---------|--------------|-------|
 | Version-aware loader | Multiple plugins can embed different SDK copies; the highest version boots and the others stand down, with no class collisions. | `mds-sdk.php` |
 | Product registration | One `Integration` container per product, built and hooked in a single call. | `SDK::register()` |
+| Feature flags | Every module — licensing, updates, rollback, notices, admin UI — can be switched off per product, by filter or by constant. | `Config\Features` |
 | License activation | Activates a key against the current domain, fail-closed (no signed "yes", no valid status). | `License\Manager::activate()` |
 | License deactivation | Releases this site's activation and clears local state, best-effort. | `License\Manager::deactivate()` |
 | Daily heartbeat | Re-validates the license once a day through WP-Cron, with per-site jitter. | `Cron\Scheduler` |
@@ -151,9 +153,136 @@ A complete reference integration lives in
 | `settings_parent` | No | `null` | Parent menu slug for an auto License submenu. `null` registers no menu. |
 | `update_check_ttl` | No | `12 * HOUR_IN_SECONDS` | Update-check and version-list cache lifetime, in seconds. Clamped to a minimum of one hour. |
 | `grace_period` | No | `14 * DAY_IN_SECONDS` | How long a cached "valid" status survives an API outage. |
+| `mode` | No | `full` | Feature preset: `full`, `license_only` or `updates_only`. An unknown value falls back to `full`. |
+| `features` | No | `array()` | Partial map of feature flags overriding the preset. Unknown keys are ignored. |
 
 A missing or empty required key throws `InvalidArgumentException` at
 registration time.
+
+## Feature flags
+
+Not every product needs the whole stack. A product may want licensing but ship
+its updates elsewhere; a free product may want updates with no license at all;
+a product with its own settings screen may want everything except the built-in
+notices. Each concern is a named flag.
+
+```php
+SDK::register( array(
+    // …required keys…
+    'mode'     => 'updates_only',        // preset
+    'features' => array(                 // per-flag override on top of it
+        'update_details' => false,
+    ),
+) );
+```
+
+### Presets
+
+| Flag | `full` (default) | `license_only` | `updates_only` | Gates |
+|------|:---:|:---:|:---:|-------|
+| `license` | ✅ | ✅ | ❌ | The whole license module: stored key, activation, validation. |
+| `updates` | ✅ | ❌ | ✅ | Injection into the core update transients. |
+| `rollback` | ✅ | ❌ | ❌ | Version listing and downgrade. |
+| `heartbeat` | ✅ | ✅ | ❌ | The daily WP-Cron license validation. |
+| `admin_menu` | ✅ | ✅ | ❌ | The auto-registered "License" submenu. |
+| `notices` | ✅ | ✅ | ❌ | Admin notices about license problems. |
+| `update_details` | ✅ | ❌ | ✅ | The "View details" modal (`plugins_api`). |
+| `license_gate_updates` | ✅ | — | ❌ | Whether an active license is required before an update is offered. |
+| `admin_license_panel` | ✅ | ✅ | ❌ | Rendering of the bundled license panel. |
+| `admin_rollback_panel` | ✅ | ✅ | ❌ | Rendering of the bundled rollback panel. |
+| `logging` | `WP_DEBUG` | `WP_DEBUG` | `WP_DEBUG` | Debug log output. |
+
+Registering without `mode` or `features` selects `full`, which behaves exactly
+as the SDK did before flags existed.
+
+### Dependencies
+
+A flag is only active when everything it depends on is active too, so a
+contradictory configuration degrades safely instead of half-working:
+
+```
+heartbeat, notices, rollback, license_gate_updates, admin_license_panel  →  license
+admin_menu  →  admin_license_panel  →  license
+admin_rollback_panel  →  rollback
+update_details  →  updates
+```
+
+Asking for a flag whose dependency is off logs a `features.conflict` warning at
+boot rather than failing silently.
+
+### Resolution order
+
+```
+preset (mode)  →  features array  →  filters  →  constants
+```
+
+```php
+// All products, once, before boot.
+add_filter( 'mds_sdk_features', function ( array $features, $slug ) {
+    if ( 'my-plugin' === $slug ) {
+        $features['notices'] = false;
+    }
+
+    return $features;
+}, 10, 2 );
+
+// One flag of one product.
+add_filter( 'mds_my_plugin_feature_rollback', '__return_false' );
+```
+
+```php
+// wp-config.php — the site owner's kill switch. Constants are the final word:
+// no filter can turn them back on.
+define( 'MDS_MY_PLUGIN_FEATURE_NOTICES', false );  // one product
+define( 'MDS_SDK_FEATURE_LOGGING', true );         // every product
+```
+
+The constant name is the hook prefix uppercased: slug `my-plugin` →
+`mds_my_plugin` → `MDS_MY_PLUGIN_FEATURE_{FLAG}`.
+
+### When your filter runs matters
+
+`SDK::register()` runs on `mds_sdk_loaded`, which fires at `plugins_loaded`
+priority **-100**. Flags split into two kinds by whether they must be known
+that early:
+
+| Kind | Flags | Read | Filterable from |
+|------|-------|------|-----------------|
+| **Structural** — registering the hook costs an API call or schedules a cron event | `license`, `updates`, `rollback`, `heartbeat`, `admin_menu` | once, at boot | a plugin or mu-plugin (top-level `add_filter`), or a constant |
+| **Behavioural** — registering is free, so the decision is deferred | `notices`, `update_details`, `license_gate_updates`, `admin_license_panel`, `admin_rollback_panel`, `logging` | at the point of use | anywhere, including a theme's `functions.php` |
+
+A theme is too late for a structural flag: `functions.php` loads on
+`after_setup_theme`, well after the SDK has booted. Use a constant instead.
+
+### Reading the resolved state
+
+```php
+$features = \MeuMouse\MDS\SDK\SDK::get( 'my-plugin' )->features();
+
+$features->enabled( 'rollback' );  // bool, dependencies included
+$features->mode();                 // "full" | "license_only" | "updates_only"
+$features->active();               // names of the currently active flags
+$features->conflicts();            // rows of { feature, requires }
+```
+
+### Products without a license
+
+With `license` off the module is inert — no option is read or written, no
+request is made — and the SDK reports the product as unlocked so your own gating
+keeps working:
+
+```php
+$integration->is_licensed();          // true
+$integration->license()->is_enabled();// false
+$integration->license()->status()->status();      // "not_required"
+$integration->license()->status()->is_required(); // false
+```
+
+`license_gate_updates => false` means *this product does not require a license*.
+It does **not** relax any security check: the update-check response is still
+verified with ed25519, and the request simply omits `license_key` so the API can
+tell a free product from a missing key. The API must be configured to serve
+unlicensed checks for that product, or the server will reject them.
 
 ## Licensing
 
@@ -169,7 +298,12 @@ $license->status();                     // last persisted LicenseStatus, no netw
 $license->is_active();                  // effective validity (honours expiry)
 $license->has_key();
 $license->get_key();
+$license->is_enabled();                 // false when the `license` feature is off
 ```
+
+With the `license` feature off every operation above becomes inert: no option is
+read or written, no request is made, `status()` reports `not_required` and
+`is_active()` returns true. See [Feature flags](#feature-flags).
 
 **Activation** is fail-closed. The key is persisted only after a signed success
 response; the SDK then runs one `validate()` call to pull the full status
@@ -190,8 +324,9 @@ the admin panel. Failure handling splits in two:
   the grace period has not elapsed since the last successful check. After that,
   the status degrades to `unknown` and updates stop being offered.
 
-**Status values** are `active`, `inactive`, `expired`, `invalid` and `unknown`.
-`LicenseStatus` also exposes the whole server payload:
+**Status values** are `active`, `inactive`, `expired`, `invalid`, `unknown` and
+`not_required` (the product runs without licensing). `LicenseStatus` also
+exposes the whole server payload:
 
 ```php
 $status = $license->status();
@@ -201,6 +336,7 @@ $status->status();          // one of the constants above
 $status->expires_at();      // ISO-8601 string, or null for lifetime
 $status->is_expired();
 $status->is_signed();       // whether the last verdict came from a verified response
+$status->is_required();     // false only when the `license` feature is off
 $status->domain();
 $status->checked_at();
 $status->last_success_at();
@@ -265,9 +401,12 @@ For themes (`Updates\ThemeUpdater`) the same applies through
 `pre_set_site_transient_update_themes` (no details modal, which core does not
 offer for themes).
 
-Updates are a licensed benefit: when `is_active()` is false the check is skipped
-entirely and a short negative result is cached. Errors are also cached briefly —
-`min( 1 hour, update_check_ttl )` — to prevent request storms.
+Updates are a licensed benefit by default: when `is_active()` is false the check
+is skipped entirely and a short negative result is cached. Set
+`license_gate_updates => false` (or use the `updates_only` preset) for a product
+distributed free of charge — see [Feature flags](#feature-flags). Errors are
+also cached briefly — `min( 1 hour, update_check_ttl )` — to prevent request
+storms.
 
 `Updates\UpdateTransformer` maps the API payload to the shapes core expects and
 is pure (no side effects), which makes it straightforward to test against
@@ -293,17 +432,19 @@ the rollback is reactivated afterwards.
 the caller's responsibility. `Admin\RollbackPage` already does both; if you
 build your own UI, replicate them.
 
-Error codes returned as `WP_Error`: `mds_rollback_invalid`,
-`mds_rollback_unlicensed`, `mds_rollback_api`, `mds_rollback_no_package`,
-`mds_rollback_not_found`, `mds_rollback_failed`.
+Error codes returned as `WP_Error`: `mds_rollback_disabled`,
+`mds_rollback_invalid`, `mds_rollback_unlicensed`, `mds_rollback_api`,
+`mds_rollback_no_package`, `mds_rollback_not_found`, `mds_rollback_failed`.
 
 ## Admin UI
 
-Three admin pieces are registered automatically when `is_admin()` is true: the
-license settings handlers, the rollback action handler, and the notices.
+Three admin pieces are registered automatically when `is_admin()` is true, each
+subject to its feature flag: the license settings handlers, the rollback action
+handler, and the notices.
 
 **Auto submenu.** Set `settings_parent` and a "License" submenu is added under
-that parent, requiring `manage_options`.
+that parent, requiring `manage_options` (or whatever
+`mds_{slug}_capability` returns for the `settings` context).
 
 **Render the panels yourself.** The submenu is optional; both panels can be
 embedded in your own settings screen:
@@ -325,7 +466,28 @@ renders nothing for a user without it.
 
 **Notices.** When the license is missing, invalid or expired, a warning notice
 with a link to the license screen is shown to `manage_options` users on the
-Dashboard, Plugins and Updates screens only.
+Dashboard, Plugins and Updates screens only. Turn it off with the `notices`
+flag, or reshape it without turning it off:
+
+```php
+// Show it on your own settings screen too.
+add_filter( 'mds_my_plugin_notice_screens', function ( array $screens ) {
+    $screens[] = 'settings_page_my-plugin';
+
+    return $screens;
+} );
+
+// Reword it, and make it dismissible.
+add_filter( 'mds_my_plugin_notice_message', fn() => 'Ative sua licença para receber atualizações.' );
+add_filter( 'mds_my_plugin_notice_args', function ( array $args ) {
+    $args['dismissible'] = true;
+
+    return $args;
+} );
+```
+
+`mds_{slug}_should_show_notice` receives the decision, the `LicenseStatus` and
+the current screen id, and has the final say in both directions.
 
 **Template overrides.** Both templates live in `templates/` and can be replaced
 through the `mds_sdk_template` filter:
@@ -365,7 +527,12 @@ $scheduler->hook();        // the per-product cron hook name
 $scheduler->schedule();
 $scheduler->unschedule();  // also called by Integration::shutdown()
 $scheduler->run();         // run the heartbeat now
+$scheduler->recurrence();  // the filtered cron schedule, "daily" by default
+$scheduler->is_enabled();  // whether the heartbeat feature is on
 ```
+
+Turning the `heartbeat` flag off also removes an event scheduled while it was
+on, so the cron table does not keep an orphan.
 
 ## Public API reference
 
@@ -385,21 +552,30 @@ $scheduler->run();         // run the heartbeat now
 | `boot()` | Registers every WordPress hook. Called by `SDK::register()`. |
 | `shutdown()` | Removes the scheduled heartbeat. Call it from your deactivation hook. |
 | `product(): Product` | The immutable configuration object. |
+| `features(): Config\Features` | Resolved feature flags. |
 | `license(): License\Manager` | License lifecycle. |
 | `rollback(): Rollback\Manager` | Version listing and downgrade. |
 | `scheduler(): Cron\Scheduler` | Heartbeat scheduling. |
 | `settings(): Admin\LicenseSettings` | License panel and its actions. |
 | `rollback_page(): Admin\RollbackPage` | Rollback panel and its action. |
-| `is_licensed(): bool` | Shortcut for `license()->is_active()`. |
+| `notices(): Admin\Notices` | The license notice. |
+| `is_licensed(): bool` | Shortcut for `license()->is_active()`. True when the `license` feature is off. |
 
 ### `Config\Product`
 
 Read-only accessors for every configuration value: `slug()`, `type()`,
 `is_plugin()`, `is_theme()`, `file()`, `current_version()`, `api_base_url()`,
 `api_key()`, `public_key()`, `item_name()`, `text_domain()`, `channel()`,
-`settings_parent()`, `update_check_ttl()`, `grace_period()`, plus
-`key( $suffix )`, which builds the `mds_{slug}_{suffix}` prefix used for every
-option, transient and hook name.
+`settings_parent()`, `update_check_ttl()`, `grace_period()`, `features()` and
+`capability( $context )`, plus `key( $suffix )`, which builds the
+`mds_{slug}_{suffix}` prefix used for every option, transient and hook name, and
+its static counterpart `Product::prefix( $slug )`.
+
+### `Config\Features`
+
+`enabled( $name )`, `all()`, `active()`, `mode()` and `conflicts()`. Flag names
+are exposed as class constants (`Features::UPDATES`, `Features::NOTICES`, …).
+See [Feature flags](#feature-flags).
 
 ### `Api\Client`
 
@@ -446,6 +622,8 @@ product and multisite-aware.
 | Hook | Arguments | Fired when |
 |------|-----------|------------|
 | `mds_sdk_loaded` | `array $winner` — the elected copy (`version`, `path`) | Once, on `plugins_loaded` (priority -100), after the newest embedded copy boots. Register products here. |
+| `mds_{slug}_before_boot` | `Features $features`, `Product $product` | Before a product registers its hooks. |
+| `mds_{slug}_booted` | `Integration $integration` | After a product has registered its hooks. |
 | `mds_sdk_registered_{slug}` | `Integration $integration` | After a product has been fully wired. |
 | `mds_{slug}_heartbeat` | — | The per-product daily cron event. |
 | `admin_post_mds_{slug}_activate` | — | License activation form submit. |
@@ -461,6 +639,22 @@ characters replaced by underscores.
 | Hook | Arguments | Purpose |
 |------|-----------|---------|
 | `mds_sdk_template` | `string $path`, `string $name`, `Product $product` | Override the admin template path. |
+| `mds_sdk_features` | `array $features`, `string $slug`, `array $config` | Adjust the resolved feature map of any product, before it boots. |
+| `mds_{slug}_feature_{name}` | `bool $enabled`, `string $slug` | Toggle one feature. |
+| `mds_{slug}_notice_screens` | `array $screens`, `Product $product` | Screen ids the license notice may appear on. |
+| `mds_{slug}_notice_message` | `string $message`, `LicenseStatus $status`, `Product $product` | Reword the notice. |
+| `mds_{slug}_notice_args` | `array $args`, `LicenseStatus $status` | `type`, `dismissible`, `link_text`, `link_url`. |
+| `mds_{slug}_should_show_notice` | `bool $show`, `LicenseStatus $status`, `string $screen` | Final say on rendering the notice, in both directions. |
+| `mds_{slug}_capability` | `string $capability`, `string $context`, `Product $product` | Capability for the `settings`, `notices` or `rollback` context. |
+| `mds_{slug}_settings_url` | `string $url`, `Product $product` | Where notices and links point — set it when embedding the panel in your own screen. |
+| `mds_{slug}_update_check_ttl` | `int $ttl`, `Product $product` | Update-check cache lifetime. Still clamped to one hour minimum. |
+| `mds_{slug}_grace_period` | `int $seconds`, `Product $product` | License grace window. |
+| `mds_{slug}_heartbeat_recurrence` | `string $recurrence`, `Product $product` | Cron schedule for the heartbeat. Falls back to `daily` if unregistered. |
+| `mds_{slug}_request_body` | `array $body`, `string $path`, `Product $product` | Outbound request payload. |
+
+There is deliberately **no** filter on an API response, on `require_signature`
+or on the verifier, and no feature flag can switch signature verification off.
+Every hook above is outbound or presentational.
 
 ### WordPress hooks the SDK registers
 
@@ -519,6 +713,13 @@ Every request carries `domain`, `site_url`, `environment`, `wp_version`,
 - **Least-privilege key in the product.** Only the public key and a
   low-privilege API key are embedded. Private keys never live in the SDK or the
   consumer.
+- **Feature flags are not a bypass.** Switching `license` or
+  `license_gate_updates` off — by config, filter or constant — only changes what
+  *this site* asks for. The update-check then goes out without a `license_key`,
+  and the API refuses to serve a paid product on that request. Turning the flag
+  off in `wp-config.php` therefore grants nothing: the entitlement decision is
+  the server's, exactly as it is for a patched client. No flag and no filter can
+  reach signature verification, `require_signature`, or the response itself.
 - **Defence in depth.** Namespace prefixing and storing the public key and API
   base as constants raise the bar, but client-side code can always be patched —
   which is exactly why the cryptographic signature, which cannot be forged, is
@@ -574,12 +775,16 @@ public key as each product's `public_key`.
 [MDS-SDK][my-plugin][WARNING] license.grace {"remaining":1123200}
 ```
 
-Step identifiers include `integration.booted`, `api.ok`, `api.error`,
-`api.transport`, `api.unsigned`, `license.validate`, `license.rejected`,
-`license.grace`, `license.grace_expired`, `license.deactivate`,
+Step identifiers include `integration.booted` (which reports the resolved mode
+and active flags), `features.conflict`, `api.ok`, `api.error`, `api.transport`,
+`api.unsigned`, `license.validate`, `license.rejected`, `license.grace`,
+`license.grace_expired`, `license.deactivate`, `license.disabled`,
 `cron.scheduled`, `cron.heartbeat`, `update.checked`, `update.error`,
 `update.skip_unlicensed`, `rollback.start`, `rollback.done` and
 `rollback.list_error`.
+
+Logging follows the `logging` flag, which defaults to `WP_DEBUG`. Force it on
+for one site with `define( 'MDS_MY_PLUGIN_FEATURE_LOGGING', true );`.
 
 ## Development
 

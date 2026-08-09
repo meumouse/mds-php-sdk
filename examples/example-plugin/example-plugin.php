@@ -31,6 +31,18 @@ add_action(
 				'public_key'      => 'BASE64_ED25519_PUBLIC_KEY',
 				'item_name'       => 'MDS SDK Example',
 				'settings_parent' => 'options-general.php', // auto License submenu under Settings.
+
+				// Which parts of the SDK this product uses. "full" is the default
+				// and needs no declaration; "license_only" and "updates_only" are
+				// the presets for a product distributed elsewhere and for a free
+				// product with no key at all.
+				'mode'            => 'full',
+
+				// Individual overrides on top of the preset. Here the product
+				// renders its own license warnings, so the built-in notice is off.
+				'features'        => array(
+					'notices' => false,
+				),
 			)
 		);
 

@@ -12,6 +12,7 @@ use MeuMouse\MDS\SDK\Admin\Notices;
 use MeuMouse\MDS\SDK\Admin\RollbackPage;
 use MeuMouse\MDS\SDK\Admin\View;
 use MeuMouse\MDS\SDK\Api\Client;
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\Cron\Scheduler;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
@@ -33,6 +34,9 @@ final class Integration {
 
 	/** @var Product */
 	private $product;
+
+	/** @var Features */
+	private $features;
 
 	/** @var Logger */
 	private $logger;
@@ -58,13 +62,17 @@ final class Integration {
 	/** @var RollbackPage */
 	private $rollback_page;
 
+	/** @var Notices */
+	private $notices;
+
 	/**
 	 * @param Product $product Product configuration.
 	 */
 	public function __construct( Product $product ) {
-		$this->product = $product;
+		$this->product  = $product;
+		$this->features = $product->features();
 
-		$this->logger    = new Logger( $product->slug() );
+		$this->logger    = new Logger( $product->slug(), $this->features );
 		$cache           = new Cache( $product );
 		$verifier        = new SignatureVerifier( $product->public_key() );
 		$this->client    = new Client( $product, $verifier, $this->logger );
@@ -79,16 +87,40 @@ final class Integration {
 		$view                = new View( $product );
 		$this->settings      = new LicenseSettings( $product, $this->license, $view, $this->updater, $this->rollback );
 		$this->rollback_page = new RollbackPage( $product, $this->rollback, $this->license, $view );
+		$this->notices       = new Notices( $product, $this->license, $this->settings );
 	}
 
 	/**
-	 * Register all hooks. Idempotent per request.
+	 * Register the hooks this product's feature set calls for. Idempotent per
+	 * request.
+	 *
+	 * Structural features are decided here and only here: skipping them means
+	 * never registering a hook that would cost an API call or schedule a cron
+	 * event. Behavioural features are wired unconditionally — registering them
+	 * is free — and re-checked at the point of use, so they stay filterable long
+	 * after this runs.
 	 *
 	 * @return void
 	 */
 	public function boot() {
+		/**
+		 * Fires before a product registers its hooks.
+		 *
+		 * @param Features $features Resolved feature flags.
+		 * @param Product  $product  Product context.
+		 */
+		do_action( $this->product->key( 'before_boot' ), $this->features, $this->product );
+
+		// Surface a misconfiguration (e.g. heartbeat without license) in the log
+		// instead of silently dropping it.
+		foreach ( $this->features->conflicts() as $conflict ) {
+			$this->logger->warning( 'features.conflict', $conflict );
+		}
+
 		// Updates run in any context where core builds the update transients.
-		$this->updater->register();
+		if ( $this->features->enabled( Features::UPDATES ) ) {
+			$this->updater->register();
+		}
 
 		// Heartbeat cron (registers the action + self-heals scheduling).
 		$this->scheduler->register();
@@ -96,12 +128,24 @@ final class Integration {
 		if ( is_admin() ) {
 			$this->settings->register();
 			$this->rollback_page->register();
-
-			$notices = new Notices( $this->product, $this->license, $this->settings->settings_url() );
-			$notices->register();
+			$this->notices->register();
 		}
 
-		$this->logger->step( 'integration.booted', array( 'type' => $this->product->type() ) );
+		$this->logger->step(
+			'integration.booted',
+			array(
+				'type'     => $this->product->type(),
+				'mode'     => $this->features->mode(),
+				'features' => $this->features->active(),
+			)
+		);
+
+		/**
+		 * Fires after a product has registered its hooks.
+		 *
+		 * @param Integration $integration This integration.
+		 */
+		do_action( $this->product->key( 'booted' ), $this );
 	}
 
 	/**
@@ -120,6 +164,16 @@ final class Integration {
 	/** @return Product */
 	public function product() {
 		return $this->product;
+	}
+
+	/** @return Features */
+	public function features() {
+		return $this->features;
+	}
+
+	/** @return Notices */
+	public function notices() {
+		return $this->notices;
 	}
 
 	/** @return LicenseManager */
@@ -149,6 +203,9 @@ final class Integration {
 
 	/**
 	 * Convenience: is the license currently usable?
+	 *
+	 * Always true when the `license` feature is off — the product carries no
+	 * entitlement check, so gating code should not lock anything.
 	 *
 	 * @return bool
 	 */

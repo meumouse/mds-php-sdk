@@ -7,6 +7,7 @@
 
 namespace MeuMouse\MDS\SDK\Admin;
 
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
 use MeuMouse\MDS\SDK\Rollback\Manager as RollbackManager;
@@ -48,6 +49,10 @@ final class RollbackPage {
 	 * @return void
 	 */
 	public function register() {
+		if ( ! $this->product->features()->enabled( Features::ROLLBACK ) ) {
+			return;
+		}
+
 		add_action( 'admin_post_' . $this->product->key( 'rollback' ), array( $this, 'handle_rollback' ) );
 	}
 
@@ -57,7 +62,7 @@ final class RollbackPage {
 	 * @return string
 	 */
 	private function capability() {
-		return $this->product->is_theme() ? 'update_themes' : 'update_plugins';
+		return $this->product->capability( 'rollback' );
 	}
 
 	/**
@@ -66,6 +71,10 @@ final class RollbackPage {
 	 * @return void
 	 */
 	public function render() {
+		if ( ! $this->product->features()->enabled( Features::ADMIN_ROLLBACK_PANEL ) ) {
+			return;
+		}
+
 		if ( ! current_user_can( $this->capability() ) ) {
 			return;
 		}
@@ -89,6 +98,10 @@ final class RollbackPage {
 	 * @return void
 	 */
 	public function handle_rollback() {
+		if ( ! $this->product->features()->enabled( Features::ROLLBACK ) ) {
+			wp_die( esc_html__( 'Rollback is disabled for this product.', 'mds-sdk' ) );
+		}
+
 		if ( ! current_user_can( $this->capability() ) ) {
 			wp_die( esc_html__( 'You are not allowed to do this.', 'mds-sdk' ) );
 		}

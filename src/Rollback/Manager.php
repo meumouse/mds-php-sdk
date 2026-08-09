@@ -9,6 +9,7 @@ namespace MeuMouse\MDS\SDK\Rollback;
 
 use MeuMouse\MDS\SDK\Api\ApiException;
 use MeuMouse\MDS\SDK\Api\Client;
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
 use MeuMouse\MDS\SDK\Support\Cache;
@@ -63,6 +64,10 @@ final class Manager {
 	 * @return array<int,array<string,mixed>> Version rows (without download tokens).
 	 */
 	public function list_versions( $force = false ) {
+		if ( ! $this->is_enabled() ) {
+			return array();
+		}
+
 		if ( ! $force ) {
 			$cached = $this->cache->get( self::CACHE_VERSIONS );
 
@@ -100,6 +105,10 @@ final class Manager {
 	 * @return true|\WP_Error
 	 */
 	public function rollback( $version ) {
+		if ( ! $this->is_enabled() ) {
+			return new \WP_Error( 'mds_rollback_disabled', __( 'Rollback is disabled for this product.', 'mds-sdk' ) );
+		}
+
 		$version = trim( (string) $version );
 
 		if ( '' === $version ) {
@@ -126,6 +135,15 @@ final class Manager {
 	/* -------------------------------------------------------------------- */
 	/* Internals                                                             */
 	/* -------------------------------------------------------------------- */
+
+	/**
+	 * Whether this product offers rollback.
+	 *
+	 * @return bool
+	 */
+	private function is_enabled() {
+		return $this->product->features()->enabled( Features::ROLLBACK );
+	}
 
 	/**
 	 * Resolve a single-use, token-gated package URL for a version.

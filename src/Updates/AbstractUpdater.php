@@ -9,6 +9,7 @@ namespace MeuMouse\MDS\SDK\Updates;
 
 use MeuMouse\MDS\SDK\Api\ApiException;
 use MeuMouse\MDS\SDK\Api\Client;
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
 use MeuMouse\MDS\SDK\Support\Cache;
@@ -78,22 +79,31 @@ abstract class AbstractUpdater {
 			}
 		}
 
-		// Updates are a licensed benefit: never offer them without a valid license.
-		if ( ! $this->license->is_active() ) {
+		// Updates are a licensed benefit by default: never offer them without a
+		// valid license. A product distributed free of charge turns the gate off
+		// (`license_gate_updates`), and the server decides whether it will serve
+		// an unlicensed check — the response is still signature-verified.
+		if ( $this->license_gated() && ! $this->license->is_active() ) {
 			$this->logger->step( 'update.skip_unlicensed', array() );
 			$this->cache->set( self::CACHE_UPDATE, array( 'update_available' => false ), $this->negative_ttl() );
 
 			return null;
 		}
 
-		$body = array_merge(
-			array(
-				'license_key'     => $this->license->get_key(),
-				'product_slug'    => $this->product->slug(),
-				'current_version' => $this->product->current_version(),
-			),
-			Environment::request_meta( $this->product )
+		$body = array(
+			'product_slug'    => $this->product->slug(),
+			'current_version' => $this->product->current_version(),
 		);
+
+		$key = $this->license->get_key();
+
+		// Omitted entirely rather than sent empty when the product has no
+		// licensing, so the API can tell "free product" from "missing key".
+		if ( '' !== $key ) {
+			$body['license_key'] = $key;
+		}
+
+		$body = array_merge( $body, Environment::request_meta( $this->product ) );
 
 		try {
 			$response = $this->client->post( '/v2/update-check', $body, true );
@@ -128,6 +138,15 @@ abstract class AbstractUpdater {
 		$latest = isset( $data['latest_version'] ) ? (string) $data['latest_version'] : '';
 
 		return '' !== $latest && version_compare( $latest, $this->product->current_version(), '>' );
+	}
+
+	/**
+	 * Whether an active license is required before an update is offered.
+	 *
+	 * @return bool
+	 */
+	protected function license_gated() {
+		return $this->product->features()->enabled( Features::LICENSE_GATE_UPDATES );
 	}
 
 	/**

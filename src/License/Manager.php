@@ -9,6 +9,7 @@ namespace MeuMouse\MDS\SDK\License;
 
 use MeuMouse\MDS\SDK\Api\ApiException;
 use MeuMouse\MDS\SDK\Api\Client;
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\Support\Environment;
 use MeuMouse\MDS\SDK\Support\Logger;
@@ -22,6 +23,11 @@ defined( 'ABSPATH' ) || exit;
  * Heartbeat validation is fail-open within a configurable grace window so a
  * transient API/network outage never disables a legitimate customer, while a
  * sustained outage (or a server "no") eventually invalidates the license.
+ *
+ * With the `license` feature off the whole module becomes inert: no key is
+ * read or written, no request is made, and the reported status is
+ * {@see LicenseStatus::STATUS_NOT_REQUIRED} so callers gating on
+ * {@see is_active()} keep the product unlocked.
  */
 final class Manager {
 
@@ -45,12 +51,25 @@ final class Manager {
 		$this->logger  = $logger;
 	}
 
+	/**
+	 * Whether this product uses licensing at all.
+	 *
+	 * @return bool
+	 */
+	public function is_enabled() {
+		return $this->product->features()->enabled( Features::LICENSE );
+	}
+
 	/* -------------------------------------------------------------------- */
 	/* Key storage                                                           */
 	/* -------------------------------------------------------------------- */
 
 	/** @return string The stored license key, or empty string. */
 	public function get_key() {
+		if ( ! $this->is_enabled() ) {
+			return '';
+		}
+
 		return (string) $this->get_option( $this->product->key( 'license_key' ), '' );
 	}
 
@@ -72,6 +91,12 @@ final class Manager {
 	 * @throws ApiException On transport failure (caller shows "try again").
 	 */
 	public function activate( $key ) {
+		if ( ! $this->is_enabled() ) {
+			$this->logger->warning( 'license.disabled', array( 'op' => 'activate' ) );
+
+			return LicenseStatus::not_required();
+		}
+
 		$key = $this->normalize_key( $key );
 
 		// `product_slug` identifies which product is activating. A seat is a *site*,
@@ -130,6 +155,12 @@ final class Manager {
 	 * @return void
 	 */
 	public function deactivate() {
+		if ( ! $this->is_enabled() ) {
+			$this->logger->warning( 'license.disabled', array( 'op' => 'deactivate' ) );
+
+			return;
+		}
+
 		$key = $this->get_key();
 
 		if ( '' !== $key ) {
@@ -158,6 +189,12 @@ final class Manager {
 	 * @return LicenseStatus
 	 */
 	public function validate() {
+		if ( ! $this->is_enabled() ) {
+			$this->logger->warning( 'license.disabled', array( 'op' => 'validate' ) );
+
+			return LicenseStatus::not_required();
+		}
+
 		$key = $this->get_key();
 
 		if ( '' === $key ) {
@@ -226,6 +263,10 @@ final class Manager {
 	 * @return LicenseStatus
 	 */
 	public function status() {
+		if ( ! $this->is_enabled() ) {
+			return LicenseStatus::not_required();
+		}
+
 		$stored = $this->get_option( $this->product->key( 'license_state' ), array() );
 
 		return is_array( $stored ) ? LicenseStatus::from_array( $stored ) : new LicenseStatus();
@@ -235,9 +276,16 @@ final class Manager {
 	 * Effective validity used to gate updates/rollback, honouring the grace
 	 * window and any locally-known expiry date.
 	 *
+	 * Always true when the `license` feature is off — there is no entitlement to
+	 * check, so nothing should be locked.
+	 *
 	 * @return bool
 	 */
 	public function is_active() {
+		if ( ! $this->is_enabled() ) {
+			return true;
+		}
+
 		$status = $this->status();
 
 		if ( ! $status->is_valid() ) {

@@ -53,11 +53,14 @@ final class Product {
 	/** @var string|null Parent admin menu slug to anchor the license panel under. */
 	private $settings_parent;
 
-	/** @var int Update-check cache TTL, in seconds. */
+	/** @var int Update-check cache TTL, in seconds, before filtering/clamping. */
 	private $update_check_ttl;
 
 	/** @var int License-status grace window, in seconds, when the API is unreachable. */
 	private $grace_period;
+
+	/** @var Features Which parts of the SDK this product uses. */
+	private $features;
 
 	/**
 	 * @param array $args Raw configuration. See SDK::register() for the keys.
@@ -74,6 +77,8 @@ final class Product {
 				'settings_parent'  => null,
 				'update_check_ttl' => 12 * HOUR_IN_SECONDS,
 				'grace_period'     => 14 * DAY_IN_SECONDS,
+				'mode'             => Features::MODE_FULL,
+				'features'         => array(),
 			),
 			$args
 		);
@@ -93,8 +98,11 @@ final class Product {
 		$this->channel         = 'beta' === $args['channel'] ? 'beta' : 'stable';
 		$this->settings_parent = null !== $args['settings_parent'] ? (string) $args['settings_parent'] : null;
 
-		$this->update_check_ttl = max( HOUR_IN_SECONDS, (int) $args['update_check_ttl'] );
-		$this->grace_period     = max( 0, (int) $args['grace_period'] );
+		// Stored raw: both are filterable, so clamping happens on read.
+		$this->update_check_ttl = (int) $args['update_check_ttl'];
+		$this->grace_period     = (int) $args['grace_period'];
+
+		$this->features = new Features( $this->slug, $args );
 	}
 
 	/**
@@ -181,14 +189,80 @@ final class Product {
 		return $this->settings_parent;
 	}
 
-	/** @return int */
+	/**
+	 * Update-check and version-list cache lifetime.
+	 *
+	 * @return int Seconds, never below one hour.
+	 */
 	public function update_check_ttl() {
-		return $this->update_check_ttl;
+		/**
+		 * Filter the update-check cache TTL for this product.
+		 *
+		 * @param int     $ttl     Configured TTL in seconds.
+		 * @param Product $product Product context.
+		 */
+		$ttl = (int) apply_filters( $this->key( 'update_check_ttl' ), $this->update_check_ttl, $this );
+
+		return max( HOUR_IN_SECONDS, $ttl );
 	}
 
-	/** @return int */
+	/**
+	 * How long a cached "valid" status survives an API outage.
+	 *
+	 * @return int Seconds.
+	 */
 	public function grace_period() {
-		return $this->grace_period;
+		/**
+		 * Filter the license grace period for this product.
+		 *
+		 * @param int     $seconds Configured grace window.
+		 * @param Product $product Product context.
+		 */
+		$grace = (int) apply_filters( $this->key( 'grace_period' ), $this->grace_period, $this );
+
+		return max( 0, $grace );
+	}
+
+	/** @return Features */
+	public function features() {
+		return $this->features;
+	}
+
+	/**
+	 * Capability required for an administrative context.
+	 *
+	 * @param string $context One of "settings", "notices" or "rollback".
+	 * @return string
+	 */
+	public function capability( $context ) {
+		$context = (string) $context;
+
+		if ( 'rollback' === $context ) {
+			$default = $this->is_theme() ? 'update_themes' : 'update_plugins';
+		} else {
+			$default = 'manage_options';
+		}
+
+		/**
+		 * Filter the capability required by an SDK admin surface.
+		 *
+		 * @param string  $capability Default capability.
+		 * @param string  $context    "settings", "notices" or "rollback".
+		 * @param Product $product    Product context.
+		 */
+		$capability = apply_filters( $this->key( 'capability' ), $default, $context, $this );
+
+		return '' !== (string) $capability ? (string) $capability : $default;
+	}
+
+	/**
+	 * A stable, slug-derived prefix for option/transient/hook names.
+	 *
+	 * @param string $slug Product slug.
+	 * @return string
+	 */
+	public static function prefix( $slug ) {
+		return 'mds_' . preg_replace( '/[^a-z0-9_]/', '_', strtolower( (string) $slug ) );
 	}
 
 	/**
@@ -198,7 +272,7 @@ final class Product {
 	 * @return string
 	 */
 	public function key( $suffix = '' ) {
-		$base = 'mds_' . preg_replace( '/[^a-z0-9_]/', '_', strtolower( $this->slug ) );
+		$base = self::prefix( $this->slug );
 
 		return '' === $suffix ? $base : $base . '_' . $suffix;
 	}

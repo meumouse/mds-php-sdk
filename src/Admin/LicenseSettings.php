@@ -8,6 +8,7 @@
 namespace MeuMouse\MDS\SDK\Admin;
 
 use MeuMouse\MDS\SDK\Api\ApiException;
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
 use MeuMouse\MDS\SDK\Rollback\Manager as RollbackManager;
@@ -56,11 +57,17 @@ final class LicenseSettings {
 	 * @return void
 	 */
 	public function register() {
+		// With licensing off there is nothing to activate, so the form handlers
+		// must not exist at all.
+		if ( ! $this->product->features()->enabled( Features::LICENSE ) ) {
+			return;
+		}
+
 		add_action( 'admin_post_' . $this->product->key( 'activate' ), array( $this, 'handle_activate' ) );
 		add_action( 'admin_post_' . $this->product->key( 'deactivate' ), array( $this, 'handle_deactivate' ) );
 		add_action( 'admin_post_' . $this->product->key( 'check' ), array( $this, 'handle_check' ) );
 
-		if ( null !== $this->product->settings_parent() ) {
+		if ( null !== $this->product->settings_parent() && $this->product->features()->enabled( Features::ADMIN_MENU ) ) {
 			add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		}
 	}
@@ -75,7 +82,7 @@ final class LicenseSettings {
 			$this->product->settings_parent(),
 			sprintf( /* translators: %s: product name */ __( '%s License', 'mds-sdk' ), $this->product->item_name() ),
 			__( 'License', 'mds-sdk' ),
-			'manage_options',
+			$this->product->capability( 'settings' ),
 			$this->page_slug(),
 			array( $this, 'render' )
 		);
@@ -96,11 +103,20 @@ final class LicenseSettings {
 	 * @return string
 	 */
 	public function settings_url() {
-		if ( null !== $this->product->settings_parent() ) {
-			return admin_url( 'admin.php?page=' . $this->page_slug() );
-		}
+		$url = null !== $this->product->settings_parent() && $this->product->features()->enabled( Features::ADMIN_MENU )
+			? admin_url( 'admin.php?page=' . $this->page_slug() )
+			: admin_url( 'plugins.php' );
 
-		return admin_url( 'plugins.php' );
+		/**
+		 * Filter the URL notices and links point to.
+		 *
+		 * Set this when the panel is embedded in the product's own settings
+		 * screen instead of the auto-registered submenu.
+		 *
+		 * @param string  $url     Default license screen URL.
+		 * @param Product $product Product context.
+		 */
+		return (string) apply_filters( $this->product->key( 'settings_url' ), $url, $this->product );
 	}
 
 	/**
@@ -109,6 +125,14 @@ final class LicenseSettings {
 	 * @return void
 	 */
 	public function render() {
+		if ( ! $this->product->features()->enabled( Features::ADMIN_LICENSE_PANEL ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( $this->product->capability( 'settings' ) ) ) {
+			return;
+		}
+
 		$this->view->render(
 			'license-settings',
 			array(
@@ -141,8 +165,7 @@ final class LicenseSettings {
 
 		try {
 			$status = $this->license->activate( $key );
-			$this->updater->clear_cache();
-			$this->rollback->clear_cache();
+			$this->clear_caches();
 
 			$this->set_notice(
 				$status->is_valid() ? 'success' : 'error',
@@ -164,8 +187,7 @@ final class LicenseSettings {
 		$this->guard( 'deactivate' );
 
 		$this->license->deactivate();
-		$this->updater->clear_cache();
-		$this->rollback->clear_cache();
+		$this->clear_caches();
 
 		$this->set_notice( 'success', __( 'License deactivated for this site.', 'mds-sdk' ) );
 		$this->redirect_back();
@@ -177,8 +199,7 @@ final class LicenseSettings {
 	public function handle_check() {
 		$this->guard( 'check' );
 
-		$this->updater->clear_cache();
-		$this->rollback->clear_cache();
+		$this->clear_caches();
 		$this->license->validate();
 
 		$this->set_notice( 'success', __( 'License and updates re-checked.', 'mds-sdk' ) );
@@ -190,13 +211,30 @@ final class LicenseSettings {
 	/* -------------------------------------------------------------------- */
 
 	/**
+	 * Bust the caches of whichever features this product actually uses.
+	 *
+	 * @return void
+	 */
+	private function clear_caches() {
+		$features = $this->product->features();
+
+		if ( $features->enabled( Features::UPDATES ) ) {
+			$this->updater->clear_cache();
+		}
+
+		if ( $features->enabled( Features::ROLLBACK ) ) {
+			$this->rollback->clear_cache();
+		}
+	}
+
+	/**
 	 * Capability + nonce guard shared by all handlers.
 	 *
 	 * @param string $action Action suffix.
 	 * @return void
 	 */
 	private function guard( $action ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( $this->product->capability( 'settings' ) ) ) {
 			wp_die( esc_html__( 'You are not allowed to do this.', 'mds-sdk' ) );
 		}
 

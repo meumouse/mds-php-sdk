@@ -29,6 +29,7 @@ Dual entry point:
 SDK.php                    # static facade (register/get)
 Integration.php            # one per product: builds services and registers WP hooks
 Config/Product.php         # normalizes/validates the config array
+Config/Features.php        # feature flags: presets, overrides, filters, constants
 Api/Client.php             # transport over the WP HTTP API (auth, retry, envelope, verifies signature)
 Api/ApiResponse.php · ApiException.php
 Security/SignatureVerifier.php  # ed25519 verification (anti-piracy CORE)
@@ -44,6 +45,7 @@ Support/  Cache (transients) · Environment · Logger
 
 - **Every license/update response MUST pass through `SignatureVerifier` (ed25519).** Never act on unsigned or tampered data. Do not add a path that consumes an API response while skipping verification — that defeats the anti-nulled protection.
 - Do not weaken signature verification, do not make `public_key` optional, and do not add an "insecure if the key is missing" fallback.
+- **No feature flag and no filter may reach the response path.** Flags (`Config\Features`) decide which modules boot; filters are outbound (`mds_{slug}_request_body`) or presentational. Never add a filter on an API response, on `$require_signature`, or on the verifier. Turning `license`/`license_gate_updates` off just omits `license_key` from the request — the server still decides entitlement, and the response is still verified.
 - Package downloads are token-gated on the server; do not try to bypass that on the client.
 - Private keys never live in the SDK/consumer — only the `public_key`. `bin/generate-keys.php` is the only source of key generation.
 
@@ -65,11 +67,12 @@ Support/  Cache (transients) · Environment · Logger
 
 ## Versioning (critical)
 
-The SemVer version appears in **four places** and must stay in sync on every bump:
-1. `composer.json`
-2. `mds-sdk.php` (`$mds_sdk_this_version`)
-3. `src/SDK.php` (`const VERSION`)
-4. `CHANGELOG.md`
+The SemVer version appears in **three places** and must stay in sync on every bump:
+1. `mds-sdk.php` (`$mds_sdk_this_version`)
+2. `src/SDK.php` (`const VERSION`)
+3. `CHANGELOG.md`
+
+(`composer.json` carries no `version` field — Composer resolves it from the git tag.)
 
 The loader elects the embedded copy with the **highest** version — a wrong value here makes the correct copy lose the election. Update all four together and record the change in the CHANGELOG.
 

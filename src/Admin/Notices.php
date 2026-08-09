@@ -7,6 +7,7 @@
 
 namespace MeuMouse\MDS\SDK\Admin;
 
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\License\LicenseStatus;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
@@ -14,10 +15,18 @@ use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Surfaces a dismissible-free, actionable notice when the license is missing,
- * invalid or expired, linking to the settings screen.
+ * Surfaces an actionable notice when the license is missing, invalid or expired,
+ * linking to the settings screen.
+ *
+ * Everything here is decided at render time rather than at boot: hooking
+ * `admin_notices` costs nothing, so the `notices` feature — and the screens,
+ * wording and markup below — stay filterable long after `plugins_loaded`,
+ * including from a theme.
  */
 final class Notices {
+
+	/** Screens the notice appears on unless filtered. */
+	const DEFAULT_SCREENS = array( 'plugins', 'update-core', 'dashboard' );
 
 	/** @var Product */
 	private $product;
@@ -25,18 +34,18 @@ final class Notices {
 	/** @var LicenseManager */
 	private $license;
 
-	/** @var string */
-	private $settings_url;
+	/** @var LicenseSettings */
+	private $settings;
 
 	/**
-	 * @param Product        $product      Product context.
-	 * @param LicenseManager $license      License manager.
-	 * @param string         $settings_url URL to the license settings screen.
+	 * @param Product         $product  Product context.
+	 * @param LicenseManager  $license  License manager.
+	 * @param LicenseSettings $settings License panel, queried lazily for its URL.
 	 */
-	public function __construct( Product $product, LicenseManager $license, $settings_url ) {
-		$this->product      = $product;
-		$this->license      = $license;
-		$this->settings_url = (string) $settings_url;
+	public function __construct( Product $product, LicenseManager $license, LicenseSettings $settings ) {
+		$this->product  = $product;
+		$this->license  = $license;
+		$this->settings = $settings;
 	}
 
 	/**
@@ -50,33 +59,93 @@ final class Notices {
 	 * @return void
 	 */
 	public function maybe_render() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! $this->product->features()->enabled( Features::NOTICES ) ) {
 			return;
 		}
 
-		// Only nag where it is relevant: our own screen plus the plugins/updates list.
+		if ( ! current_user_can( $this->product->capability( 'notices' ) ) ) {
+			return;
+		}
+
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		$where  = $screen ? $screen->id : '';
 
-		if ( ! in_array( $where, array( 'plugins', 'update-core', 'dashboard' ), true ) ) {
-			return;
-		}
+		/**
+		 * Filter the screens the license notice may appear on.
+		 *
+		 * Only nag where it is relevant. An empty array shows it nowhere; to
+		 * show it somewhere else, add that screen id here rather than widening
+		 * the list to everything.
+		 *
+		 * @param array<int,string> $screens Screen ids.
+		 * @param Product           $product Product context.
+		 */
+		$screens = apply_filters( $this->product->key( 'notice_screens' ), self::DEFAULT_SCREENS, $this->product );
+		$screens = is_array( $screens ) ? $screens : self::DEFAULT_SCREENS;
 
 		$status = $this->license->status();
-		$valid  = $this->license->is_active();
+		$show   = in_array( $where, $screens, true ) && ! $this->license->is_active();
 
-		if ( $valid ) {
+		/**
+		 * Final say on whether the notice renders. Can force it on as well as off.
+		 *
+		 * @param bool          $show   Decision so far.
+		 * @param LicenseStatus $status Current license status.
+		 * @param string        $screen Current screen id.
+		 */
+		$show = (bool) apply_filters( $this->product->key( 'should_show_notice' ), $show, $status, $where );
+
+		if ( ! $show ) {
 			return;
 		}
 
-		$message = $this->message_for( $status );
+		/**
+		 * Filter the notice text.
+		 *
+		 * @param string        $message Default message for the current status.
+		 * @param LicenseStatus $status  Current license status.
+		 * @param Product       $product Product context.
+		 */
+		$message = (string) apply_filters(
+			$this->product->key( 'notice_message' ),
+			$this->message_for( $status ),
+			$status,
+			$this->product
+		);
+
+		/**
+		 * Filter the notice presentation.
+		 *
+		 * @param array<string,mixed> $args   { type, dismissible, link_text, link_url }.
+		 * @param LicenseStatus       $status Current license status.
+		 */
+		$args = apply_filters(
+			$this->product->key( 'notice_args' ),
+			array(
+				'type'        => 'warning',
+				'dismissible' => false,
+				'link_text'   => __( 'Manage license', 'mds-sdk' ),
+				'link_url'    => $this->settings->settings_url(),
+			),
+			$status
+		);
+
+		$args = is_array( $args ) ? $args : array();
+		$type = isset( $args['type'] ) ? (string) $args['type'] : 'warning';
+		$type = in_array( $type, array( 'error', 'warning', 'success', 'info' ), true ) ? $type : 'warning';
+
+		$link_text = isset( $args['link_text'] ) ? (string) $args['link_text'] : '';
+		$link_url  = isset( $args['link_url'] ) ? (string) $args['link_url'] : '';
+		$classes   = 'notice notice-' . $type . ( empty( $args['dismissible'] ) ? '' : ' is-dismissible' );
 
 		printf(
-			'<div class="notice notice-warning"><p><strong>%s:</strong> %s <a href="%s">%s</a></p></div>',
+			'<div class="%s"><p><strong>%s:</strong> %s%s</p></div>',
+			esc_attr( $classes ),
 			esc_html( $this->product->item_name() ),
 			esc_html( $message ),
-			esc_url( $this->settings_url ),
-			esc_html__( 'Manage license', 'mds-sdk' )
+			'' !== $link_url && '' !== $link_text
+				? sprintf( ' <a href="%s">%s</a>', esc_url( $link_url ), esc_html( $link_text ) )
+				: ''
 		);
 	}
 

@@ -7,6 +7,8 @@
 
 namespace MeuMouse\MDS\SDK\Updates;
 
+use MeuMouse\MDS\SDK\Config\Features;
+
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -88,6 +90,13 @@ final class PluginUpdater extends AbstractUpdater {
 		}
 
 		if ( ! isset( $args->slug ) || $args->slug !== $this->product->slug() ) {
+			return $result;
+		}
+
+		// Checked lazily: registering the filter is free, so the product can
+		// keep updates while suppressing the details modal (or hand it to its
+		// own `plugins_api` handler).
+		if ( ! $this->product->features()->enabled( Features::UPDATE_DETAILS ) ) {
 			return $result;
 		}
 

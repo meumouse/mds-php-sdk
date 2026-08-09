@@ -21,6 +21,9 @@ final class LicenseStatus {
 	const STATUS_INVALID  = 'invalid';
 	const STATUS_UNKNOWN  = 'unknown';
 
+	/** The product runs with the `license` feature off: there is nothing to verify. */
+	const STATUS_NOT_REQUIRED = 'not_required';
+
 	/** @var array<string,mixed> */
 	private $state;
 
@@ -50,6 +53,24 @@ final class LicenseStatus {
 	 */
 	public static function from_array( array $state ) {
 		return new self( $state );
+	}
+
+	/**
+	 * Status of a product that does not use licensing at all.
+	 *
+	 * Reported as valid so a consumer's `$status->is_valid()` gate keeps the
+	 * product unlocked; use {@see is_required()} to tell the two apart.
+	 *
+	 * @return self
+	 */
+	public static function not_required() {
+		return new self(
+			array(
+				'status'  => self::STATUS_NOT_REQUIRED,
+				'valid'   => true,
+				'message' => __( 'This product does not require a license.', 'mds-sdk' ),
+			)
+		);
 	}
 
 	/** @return array<string,mixed> */
@@ -100,6 +121,15 @@ final class LicenseStatus {
 	/** @return bool */
 	public function is_expired() {
 		return self::STATUS_EXPIRED === $this->status();
+	}
+
+	/**
+	 * Whether this product uses licensing at all.
+	 *
+	 * @return bool False only when the `license` feature is off.
+	 */
+	public function is_required() {
+		return self::STATUS_NOT_REQUIRED !== $this->status();
 	}
 
 	/**

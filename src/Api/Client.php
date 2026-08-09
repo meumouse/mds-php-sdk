@@ -52,6 +52,23 @@ final class Client {
 	 * @throws ApiException
 	 */
 	public function post( $path, array $body, $require_signature = true ) {
+		/**
+		 * Filter the outbound request payload.
+		 *
+		 * Outbound only, by design: there is deliberately no filter on the
+		 * response, on `$require_signature` or on the verifier, so no hook can
+		 * weaken the ed25519 guarantee.
+		 *
+		 * @param array   $body    Request payload.
+		 * @param string  $path    API path, e.g. "/v2/update-check".
+		 * @param Product $product Product context.
+		 */
+		$filtered = apply_filters( $this->product->key( 'request_body' ), $body, $path, $this->product );
+
+		if ( is_array( $filtered ) ) {
+			$body = $filtered;
+		}
+
 		return $this->request(
 			'POST',
 			$path,

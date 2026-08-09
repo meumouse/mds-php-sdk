@@ -7,6 +7,7 @@
 
 namespace MeuMouse\MDS\SDK\Cron;
 
+use MeuMouse\MDS\SDK\Config\Features;
 use MeuMouse\MDS\SDK\Config\Product;
 use MeuMouse\MDS\SDK\License\Manager as LicenseManager;
 use MeuMouse\MDS\SDK\Support\Logger;
@@ -56,6 +57,19 @@ final class Scheduler {
 	 * @return void
 	 */
 	public function register() {
+		// Structural: registering schedules a recurring event, so an unwanted
+		// heartbeat must never be wired in the first place.
+		if ( ! $this->is_enabled() ) {
+			// An event scheduled while the feature was on would otherwise outlive
+			// it. Cleaned up on an admin or cron load only — never at the cost of
+			// a front-end request.
+			if ( is_admin() || ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) ) {
+				$this->unschedule();
+			}
+
+			return;
+		}
+
 		add_action( $this->hook(), array( $this, 'run' ) );
 
 		// Self-heal: schedule on the first admin/cron load if missing.
@@ -65,7 +79,7 @@ final class Scheduler {
 	}
 
 	/**
-	 * Schedule the daily heartbeat with a randomised first run.
+	 * Schedule the heartbeat with a randomised first run.
 	 *
 	 * @return void
 	 */
@@ -76,8 +90,41 @@ final class Scheduler {
 
 		$jitter = wp_rand( 0, 6 * HOUR_IN_SECONDS );
 
-		wp_schedule_event( time() + $jitter, 'daily', $this->hook() );
-		$this->logger->step( 'cron.scheduled', array( 'jitter' => $jitter ) );
+		wp_schedule_event( time() + $jitter, $this->recurrence(), $this->hook() );
+		$this->logger->step( 'cron.scheduled', array( 'jitter' => $jitter, 'recurrence' => $this->recurrence() ) );
+	}
+
+	/**
+	 * Heartbeat interval. Falls back to "daily" when the filtered value is not a
+	 * schedule WordPress actually knows about.
+	 *
+	 * @return string
+	 */
+	public function recurrence() {
+		/**
+		 * Filter the license heartbeat recurrence.
+		 *
+		 * @param string  $recurrence A registered cron schedule name.
+		 * @param Product $product    Product context.
+		 */
+		$recurrence = (string) apply_filters( $this->product->key( 'heartbeat_recurrence' ), 'daily', $this->product );
+
+		$schedules = function_exists( 'wp_get_schedules' ) ? wp_get_schedules() : array();
+
+		if ( is_array( $schedules ) && ! empty( $schedules ) && ! isset( $schedules[ $recurrence ] ) ) {
+			return 'daily';
+		}
+
+		return '' !== $recurrence ? $recurrence : 'daily';
+	}
+
+	/**
+	 * Whether the heartbeat is active for this product.
+	 *
+	 * @return bool
+	 */
+	public function is_enabled() {
+		return $this->product->features()->enabled( Features::HEARTBEAT );
 	}
 
 	/**
@@ -100,7 +147,7 @@ final class Scheduler {
 	 * @return void
 	 */
 	public function run() {
-		if ( ! $this->license->has_key() ) {
+		if ( ! $this->is_enabled() || ! $this->license->has_key() ) {
 			return;
 		}
 

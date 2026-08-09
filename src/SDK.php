@@ -18,7 +18,7 @@ defined( 'ABSPATH' ) || exit;
 final class SDK {
 
 	/** SemVer of the SDK; keep in sync with composer.json, mds-sdk.php, CHANGELOG. */
-	const VERSION = '1.1.0';
+	const VERSION = '1.2.0';
 
 	/** @var array<string,Integration> Registered integrations, keyed by slug. */
 	private static $integrations = array();
@@ -28,7 +28,9 @@ final class SDK {
 	 *
 	 * Required config keys: product_slug, file, current_version, api_base_url,
 	 * api_key, public_key. Optional: type ("plugin"|"theme"), item_name,
-	 * text_domain, channel, settings_parent, update_check_ttl, grace_period.
+	 * text_domain, channel, settings_parent, update_check_ttl, grace_period,
+	 * mode ("full"|"license_only"|"updates_only") and features (a partial map of
+	 * {@see \MeuMouse\MDS\SDK\Config\Features} flags).
 	 *
 	 * @param array $config Product configuration.
 	 * @return Integration|null The integration, or null if already registered.
