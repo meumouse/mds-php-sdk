@@ -212,4 +212,31 @@ final class Integration {
 	public function is_licensed() {
 		return $this->license->is_active();
 	}
+
+	/**
+	 * Convenience: may this site still receive new versions?
+	 *
+	 * Usually the same answer as {@see is_licensed()}, and where it differs it
+	 * is the answer a product should gate its update-related UI on: a customer
+	 * the server waived past the licence gate has an expired licence and is
+	 * still being served. Gating on `is_licensed()` there would hide something
+	 * the customer is entitled to.
+	 *
+	 * @return bool
+	 */
+	public function allows_updates() {
+		return $this->license->allows_updates();
+	}
+
+	/**
+	 * Convenience: may this site install what it is offered?
+	 *
+	 * Separate from {@see allows_updates()} because a product can announce a
+	 * release to everyone and hand the package only to customers.
+	 *
+	 * @return bool
+	 */
+	public function allows_downloads() {
+		return $this->license->allows_downloads();
+	}
 }

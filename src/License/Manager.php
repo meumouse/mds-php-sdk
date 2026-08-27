@@ -301,6 +301,58 @@ final class Manager {
 		return true;
 	}
 
+	/**
+	 * Whether this site may still be told about — and receive — new versions.
+	 *
+	 * Deliberately NOT {@see is_active()}. The server can waive a gate for one
+	 * license, which is how a customer who bought before a product started
+	 * requiring one keeps updating. That waiver lives on the server; a client
+	 * that decided for itself would refuse the request before the server ever
+	 * got the chance to honour it.
+	 *
+	 * When the server has not answered — an older API, or no heartbeat yet —
+	 * this falls back to the license's own validity, which is exactly the
+	 * behaviour that predates the gates.
+	 *
+	 * @return bool
+	 */
+	public function allows_updates() {
+		return $this->allows( LicenseStatus::GATE_UPDATES );
+	}
+
+	/**
+	 * Whether this site may receive the package itself.
+	 *
+	 * Separate from {@see allows_updates()} because a product can announce a
+	 * release to everyone and hand the ZIP only to customers. Gates rollback,
+	 * which is an install.
+	 *
+	 * @return bool
+	 */
+	public function allows_downloads() {
+		return $this->allows( LicenseStatus::GATE_DOWNLOADS );
+	}
+
+	/**
+	 * @param string $gate Gate name.
+	 * @return bool
+	 */
+	private function allows( $gate ) {
+		if ( ! $this->is_enabled() ) {
+			return true;
+		}
+
+		$allowed = $this->status()->allowance( $gate );
+
+		// A recorded answer outranks the local reading of the license, expiry
+		// included — forgiving an expiry is the whole point of a waiver.
+		if ( null !== $allowed ) {
+			return $allowed;
+		}
+
+		return $this->is_active();
+	}
+
 	/* -------------------------------------------------------------------- */
 	/* Failure handling                                                      */
 	/* -------------------------------------------------------------------- */

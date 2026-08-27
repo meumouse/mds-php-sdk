@@ -74,4 +74,46 @@ final class LicenseStatusTest extends TestCase {
 		$this->assertTrue( $expired->is_expired() );
 		$this->assertFalse( $active->is_expired() );
 	}
+
+	public function test_reports_no_allowance_when_the_server_did_not_say(): void {
+		// An older API, or a status recorded before the gates existed. Null is
+		// not "no" — callers fall back to the license's own validity.
+		$status = new LicenseStatus( array( 'valid' => true ) );
+
+		$this->assertNull( $status->updates_allowed() );
+		$this->assertNull( $status->downloads_allowed() );
+	}
+
+	public function test_carries_the_allowances_the_server_returned(): void {
+		$status = new LicenseStatus(
+			array(
+				'status' => LicenseStatus::STATUS_EXPIRED,
+				'valid'  => false,
+				'extra'  => array(
+					'updates_allowed'   => true,
+					'downloads_allowed' => false,
+				),
+			)
+		);
+
+		// The grandfathered customer: the licence really did lapse, and the
+		// server serves them anyway. Both facts have to survive the round trip.
+		$this->assertFalse( $status->is_valid() );
+		$this->assertTrue( $status->updates_allowed() );
+		$this->assertFalse( $status->downloads_allowed() );
+	}
+
+	public function test_survives_the_round_trip_through_storage(): void {
+		$original = new LicenseStatus(
+			array(
+				'valid' => false,
+				'extra' => array( 'updates_allowed' => true, 'downloads_allowed' => false ),
+			)
+		);
+
+		$restored = LicenseStatus::from_array( $original->to_array() );
+
+		$this->assertTrue( $restored->updates_allowed() );
+		$this->assertFalse( $restored->downloads_allowed() );
+	}
 }

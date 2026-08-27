@@ -26,6 +26,9 @@ use PHPUnit\Framework\TestCase;
 
 final class UpdateGateTest extends TestCase {
 
+	/** @var array<string,mixed> Stored WordPress options for the case at hand. */
+	private $options = array();
+
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
@@ -33,9 +36,11 @@ final class UpdateGateTest extends TestCase {
 		Functions\when( 'untrailingslashit' )->returnArg();
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
 		Functions\when( 'is_multisite' )->justReturn( false );
+		$options = &$this->options;
+
 		Functions\when( 'get_option' )->alias(
-			static function ( $name, $default = false ) {
-				return $default;
+			static function ( $name, $default = false ) use ( &$options ) {
+				return array_key_exists( $name, $options ) ? $options[ $name ] : $default;
 			}
 		);
 		Functions\when( 'get_transient' )->justReturn( false );
@@ -94,6 +99,116 @@ final class UpdateGateTest extends TestCase {
 
 		// No license stored, yet the check still goes out.
 		$this->assertNull( $updater->fetch() );
+	}
+
+
+	public function test_a_waived_licence_lets_the_request_leave_despite_being_expired(): void {
+		// The case the whole waiver mechanism exists for. The licence lapsed, so
+		// `is_active()` is false; the server has already said it keeps serving
+		// this customer. Deciding locally would refuse the request before the
+		// server ever got to honour its own waiver — the request MUST go out.
+		$this->store_licence(
+			array(
+				'status'          => 'expired',
+				'valid'           => false,
+				'last_success_at' => time(),
+				'extra'           => array(
+					'updates_allowed'   => true,
+					'downloads_allowed' => false,
+				),
+			)
+		);
+
+		Functions\expect( 'wp_remote_request' )->once()->andReturn( array() );
+		$this->stub_error_response();
+
+		$updater = $this->updater( array( 'mode' => Features::MODE_FULL ) );
+
+		// The stubbed response is an error envelope, so the payload is null —
+		// what this pins is that the call happened at all.
+		$this->assertNull( $updater->fetch() );
+	}
+
+	public function test_an_expired_licence_with_no_waiver_still_stops_the_request(): void {
+		$this->store_licence(
+			array(
+				'status'          => 'expired',
+				'valid'           => false,
+				'last_success_at' => time(),
+				'extra'           => array(
+					'updates_allowed'   => false,
+					'downloads_allowed' => false,
+				),
+			)
+		);
+
+		Functions\expect( 'wp_remote_request' )->never();
+
+		$updater = $this->updater( array( 'mode' => Features::MODE_FULL ) );
+
+		$this->assertNull( $updater->fetch() );
+	}
+
+	public function test_an_older_server_that_never_answered_falls_back_to_validity(): void {
+		// No allowances recorded: the gate reverts to the behaviour that
+		// predates them, so an SDK talking to an older API is unaffected.
+		$this->store_licence(
+			array(
+				'status'          => 'active',
+				'valid'           => true,
+				'last_success_at' => time(),
+			)
+		);
+
+		Functions\expect( 'wp_remote_request' )->once()->andReturn( array() );
+		$this->stub_error_response();
+
+		$updater = $this->updater( array( 'mode' => Features::MODE_FULL ) );
+
+		$this->assertNull( $updater->fetch() );
+	}
+
+	public function test_the_licence_key_rides_along_for_a_waived_customer(): void {
+		$captured = array();
+
+		$this->store_licence(
+			array(
+				'status'          => 'expired',
+				'valid'           => false,
+				'last_success_at' => time(),
+				'extra'           => array( 'updates_allowed' => true ),
+			)
+		);
+
+		Functions\expect( 'wp_remote_request' )
+			->once()
+			->andReturnUsing(
+				static function ( $url, $args ) use ( &$captured ) {
+					$captured = json_decode( $args['body'], true );
+
+					return array();
+				}
+			);
+
+		$this->stub_error_response();
+
+		$updater = $this->updater( array( 'mode' => Features::MODE_FULL ) );
+		$updater->fetch();
+
+		// Without the key the server cannot find the licence, and a waiver lives
+		// on the licence row — so it cannot be honoured.
+		$this->assertSame( 'WAIVED-KEY-0001', $captured['license_key'] );
+	}
+
+	/**
+	 * Plant a stored licence key and status for the product under test.
+	 *
+	 * @param array $state Licence state as `Manager` persists it.
+	 * @return void
+	 */
+	private function store_licence( array $state ): void {
+		$this->options['mds_paid_plugin_license_key']   = 'WAIVED-KEY-0001';
+		$this->options['mds_paid_plugin_license_state'] = $state;
 	}
 
 	/* -------------------------------------------------------------------- */

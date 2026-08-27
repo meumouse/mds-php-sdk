@@ -96,4 +96,45 @@ final class UpdateTransformerTest extends TestCase {
 		$this->assertSame( '1.2.0', $arr['new_version'] );
 		$this->assertSame( 'https://api.example.com/v2/download?token=abc', $arr['package'] );
 	}
+
+	public function test_treats_a_response_without_an_access_block_as_granted(): void {
+		// An older API that sent a `release` sent a package with it.
+		$this->assertTrue( UpdateTransformer::downloads_granted( array( 'update_available' => true ) ) );
+	}
+
+	public function test_reads_the_download_verdict_from_the_access_block(): void {
+		$this->assertTrue(
+			UpdateTransformer::downloads_granted(
+				array( 'access' => array( 'downloads_granted' => true ) )
+			)
+		);
+
+		$this->assertFalse(
+			UpdateTransformer::downloads_granted(
+				array( 'access' => array( 'downloads_granted' => false ) )
+			)
+		);
+	}
+
+	public function test_announces_the_version_without_a_package_when_downloads_are_withheld(): void {
+		// The nudge shape: the customer is told a newer build exists and left to
+		// renew for it. WordPress renders an empty package as "Automatic update
+		// is unavailable", which is the intended outcome rather than a failure.
+		$update = UpdateTransformer::to_plugin_update(
+			$this->product(),
+			array(
+				'update_available' => true,
+				'latest_version'   => '2.0.0',
+				'product'          => array( 'homepage' => 'https://example.com/p' ),
+				'access'           => array(
+					'updates_granted'   => true,
+					'downloads_granted' => false,
+				),
+			)
+		);
+
+		$this->assertSame( '2.0.0', $update->new_version );
+		$this->assertSame( '', $update->package );
+		$this->assertSame( 'https://example.com/p', $update->url );
+	}
 }

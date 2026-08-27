@@ -401,12 +401,28 @@ For themes (`Updates\ThemeUpdater`) the same applies through
 `pre_set_site_transient_update_themes` (no details modal, which core does not
 offer for themes).
 
-Updates are a licensed benefit by default: when `is_active()` is false the check
-is skipped entirely and a short negative result is cached. Set
+Updates are a licensed benefit by default: when the site has no claim to one the
+check is skipped entirely and a short negative result is cached. Set
 `license_gate_updates => false` (or use the `updates_only` preset) for a product
 distributed free of charge — see [Feature flags](#feature-flags). Errors are
 also cached briefly — `min( 1 hour, update_check_ttl )` — to prevent request
 storms.
+
+The condition is `license()->allows_updates()`, not `is_active()`, and the
+difference matters. The API can waive a gate for one licence — how a customer
+who bought before a product started requiring one keeps updating — and that
+waiver lives on the server. A client that decided for itself would refuse the
+request before the server could honour it. `allows_updates()` reports the last
+answer the server gave (from the validation heartbeat) and falls back to
+`is_active()` when there is none, so an older API behaves exactly as before.
+
+The two gates move independently on the server, so a product can announce a
+release to every site and hand the package only to licensed ones. In that case
+the response carries no `release`: `package` comes out empty and WordPress shows
+the new version with "Automatic update is unavailable for this plugin". That is
+the intended shape — a renewal nudge — not a failure.
+`UpdateTransformer::downloads_granted( $data )` reports it, and `Admin\Notices`
+words the notice accordingly.
 
 `Updates\UpdateTransformer` maps the API payload to the shapes core expects and
 is pure (no side effects), which makes it straightforward to test against
@@ -560,6 +576,8 @@ on, so the cron table does not keep an orphan.
 | `rollback_page(): Admin\RollbackPage` | Rollback panel and its action. |
 | `notices(): Admin\Notices` | The license notice. |
 | `is_licensed(): bool` | Shortcut for `license()->is_active()`. True when the `license` feature is off. |
+| `allows_updates(): bool` | May this site still receive new versions? Differs from `is_licensed()` when the server waived the gate for this licence. |
+| `allows_downloads(): bool` | May this site install what it is offered? Gates rollback. |
 
 ### `Config\Product`
 
@@ -715,7 +733,9 @@ Every request carries `domain`, `site_url`, `environment`, `wp_version`,
   consumer.
 - **Feature flags are not a bypass.** Switching `license` or
   `license_gate_updates` off — by config, filter or constant — only changes what
-  *this site* asks for. The update-check then goes out without a `license_key`,
+  *this site* asks for. Nor are the allowances: `allows_updates()` reports what
+  the server last said, never asserts anything the server did not, and the
+  response is signature-verified either way. The update-check then goes out without a `license_key`,
   and the API refuses to serve a paid product on that request. Turning the flag
   off in `wp-config.php` therefore grants nothing: the entitlement decision is
   the server's, exactly as it is for a patched client. No flag and no filter can

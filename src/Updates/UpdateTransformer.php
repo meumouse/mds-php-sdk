@@ -97,6 +97,31 @@ final class UpdateTransformer {
 	}
 
 	/**
+	 * Whether the server handed over the package along with the announcement.
+	 *
+	 * The two are separate gates on the API: a product can tell every site
+	 * about a release and give the ZIP only to licensed ones. When downloads
+	 * are withheld the response carries no `release`, so `package_url` comes
+	 * out empty and WordPress reports the update as not automatically
+	 * installable — which is the intended outcome.
+	 *
+	 * Defaults to true when the response has no `access` block: an older API
+	 * that sent a `release` sent a package with it.
+	 *
+	 * @param array $data Update-check `data` payload.
+	 * @return bool
+	 */
+	public static function downloads_granted( array $data ) {
+		if ( ! isset( $data['access'] ) || ! is_array( $data['access'] ) ) {
+			return true;
+		}
+
+		$access = $data['access'];
+
+		return ! array_key_exists( 'downloads_granted', $access ) || ! empty( $access['downloads_granted'] );
+	}
+
+	/**
 	 * Normalise an icons/banners map from the release payload.
 	 *
 	 * @param array  $release Release payload.

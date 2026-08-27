@@ -158,6 +158,16 @@ final class Notices {
 			return __( 'Enter your license key to enable updates and support.', 'mds-sdk' );
 		}
 
+		// A license the server still serves needs its own wording. Telling a
+		// customer who is receiving updates that they are paused is not a
+		// harmless imprecision — it sends them to support over a non-problem,
+		// and it teaches them to ignore the notice.
+		if ( $this->license->allows_updates() ) {
+			return $this->license->allows_downloads()
+				? __( 'Your license has expired, but this site is still receiving updates. Renew it to keep them coming.', 'mds-sdk' )
+				: __( 'Your license has expired. New versions are still announced here, but installing them needs an active license.', 'mds-sdk' );
+		}
+
 		switch ( $status->status() ) {
 			case LicenseStatus::STATUS_EXPIRED:
 				return __( 'Your license has expired. Renew it to keep receiving updates.', 'mds-sdk' );

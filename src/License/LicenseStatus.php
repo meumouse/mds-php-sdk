@@ -21,8 +21,18 @@ final class LicenseStatus {
 	const STATUS_INVALID  = 'invalid';
 	const STATUS_UNKNOWN  = 'unknown';
 
-	/** The product runs with the `license` feature off: there is nothing to verify. */
+	/**
+	 * Nothing about the license was checked.
+	 *
+	 * Two ways to get here: the product runs with the `license` feature off, or
+	 * the server answered that this product's gate is open and it never looked
+	 * at the key.
+	 */
 	const STATUS_NOT_REQUIRED = 'not_required';
+
+	/** Gate names as the API reports them, minus the `_allowed` suffix. */
+	const GATE_UPDATES   = 'updates';
+	const GATE_DOWNLOADS = 'downloads';
 
 	/** @var array<string,mixed> */
 	private $state;
@@ -156,5 +166,40 @@ final class LicenseStatus {
 		$extra = $this->extra();
 
 		return array_key_exists( $key, $extra ) ? $extra[ $key ] : $default;
+	}
+
+	/**
+	 * Whether the server said this site may still use one of the two gates,
+	 * regardless of what the license's own state says.
+	 *
+	 * This is not the same question as {@see is_valid()}, and the difference is
+	 * the point. A customer grandfathered past a gate the product turned on
+	 * comes back `valid: false, reason: license_expired` — the license really
+	 * did lapse and the license screen must say so — while the server keeps
+	 * serving them. Only the server knows about the waiver, so only the server
+	 * can answer this.
+	 *
+	 * @param string $gate {@see GATE_UPDATES} or {@see GATE_DOWNLOADS}.
+	 * @return bool|null Null when the server did not say — an older API, or a
+	 *                   status recorded before it started answering.
+	 */
+	public function allowance( $gate ) {
+		$value = $this->get( $gate . '_allowed' );
+
+		return null === $value ? null : (bool) $value;
+	}
+
+	/**
+	 * @return bool|null Null when unanswered; callers fall back to validity.
+	 */
+	public function updates_allowed() {
+		return $this->allowance( self::GATE_UPDATES );
+	}
+
+	/**
+	 * @return bool|null Null when unanswered; callers fall back to validity.
+	 */
+	public function downloads_allowed() {
+		return $this->allowance( self::GATE_DOWNLOADS );
 	}
 }

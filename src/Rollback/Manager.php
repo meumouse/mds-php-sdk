@@ -76,7 +76,10 @@ final class Manager {
 			}
 		}
 
-		if ( ! $this->license->is_active() ) {
+		// The DOWNLOAD gate, not the update one: every row here is a package the
+		// site could install. A waived customer lists normally; a product that
+		// only opened its update feed does not.
+		if ( ! $this->license->allows_downloads() ) {
 			return array();
 		}
 
@@ -115,7 +118,7 @@ final class Manager {
 			return new \WP_Error( 'mds_rollback_invalid', __( 'No version specified.', 'mds-sdk' ) );
 		}
 
-		if ( ! $this->license->is_active() ) {
+		if ( ! $this->license->allows_downloads() ) {
 			return new \WP_Error( 'mds_rollback_unlicensed', __( 'An active license is required to roll back.', 'mds-sdk' ) );
 		}
 

@@ -1,3 +1,20 @@
+Versão 1.3.0 (27/08/2026)
+* Recursos adicionados
+  - `Integration::allows_updates()` e `Integration::allows_downloads()`, atalhos para as duas novas permissões — é neles que o produto deve travar a interface ligada a atualização, não em `is_licensed()`
+  - `LicenseStatus::allowance()`, `::updates_allowed()` e `::downloads_allowed()`, que leem os campos `updates_allowed` / `downloads_allowed` devolvidos por `/v2/updates/validate`. Retornam `null` quando o servidor não respondeu (API mais antiga, ou status gravado antes de os gates existirem) — `null` não é "não", é "sem resposta"
+  - `License\Manager::allows_updates()` e `::allows_downloads()`, que resolvem a permissão efetiva: a resposta gravada do servidor manda, e na ausência dela cai para `is_active()`
+  - `Updates\UpdateTransformer::downloads_granted( $data )`, que lê `access.downloads_granted` da resposta de update-check. Assume `true` quando não há bloco `access`, porque uma API antiga que mandou `release` mandou o pacote junto
+  - `Updates\AbstractUpdater::package_withheld( $data )`, para o produto reconhecer o caso "versão anunciada, pacote retido"
+  - `LicenseStatus::GATE_UPDATES` e `::GATE_DOWNLOADS`
+* Alterações
+  - **A verificação de atualização deixa de ser barrada por `is_active()` e passa a ser barrada por `allows_updates()`.** É a correção central desta versão: a API agora pode dispensar um gate para uma licença específica — é assim que um cliente que comprou antes de o produto passar a exigir licença continua atualizando — e essa dispensa mora no servidor. O cliente que decidia sozinho recusava a requisição antes de o servidor ter chance de honrar a própria dispensa. Sem resposta gravada, o comportamento é idêntico ao da 1.2.0
+  - `Rollback\Manager::list_versions()` e `::rollback()` passam a consultar `allows_downloads()` em vez de `is_active()`. Rollback é instalação, então responde ao gate de download: um cliente dispensado lista normalmente, e um produto que só abriu o feed de atualização não
+  - `Admin\Notices` ganhou texto próprio para a licença que o servidor continua servindo. Dizer "as atualizações estão pausadas" a quem está recebendo atualização não é imprecisão inofensiva — manda o cliente ao suporte por um não-problema e ensina que o aviso pode ser ignorado
+  - `LicenseStatus::STATUS_NOT_REQUIRED` passa a ter duas origens: o recurso `license` desligado (como antes) e o servidor respondendo que o gate do produto está aberto e a chave não foi consultada
+* Compatibilidade
+  - Aditivo dos dois lados. Um SDK 1.3.0 contra uma API sem os gates cai em `is_active()` e se comporta como a 1.2.0; um SDK anterior contra a API nova ignora os campos novos e continua funcionando, com a ressalva de que não honra dispensas — um cliente dispensado rodando 1.2.0 ou anterior segue sem receber atualização enquanto a licença estiver vencida
+  - **Requer suporte correspondente na API** para as dispensas funcionarem: `/v2/updates/validate` precisa devolver `updates_allowed` / `downloads_allowed`, e `/v2/update-check` o bloco `access`
+
 Versão 1.2.0 (09/08/2026)
 * Recursos adicionados
   - Sistema de feature flags (`Config\Features`): cada parte do SDK — licença, atualizações, rollback, heartbeat, avisos, modal de detalhes, menu automático, painéis administrativos e log — passa a ser um recurso nomeado que pode ser ligado ou desligado por produto. Sem nenhuma configuração o comportamento é idêntico ao da 1.1.0

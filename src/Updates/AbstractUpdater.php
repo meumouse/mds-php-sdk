@@ -79,11 +79,18 @@ abstract class AbstractUpdater {
 			}
 		}
 
-		// Updates are a licensed benefit by default: never offer them without a
-		// valid license. A product distributed free of charge turns the gate off
-		// (`license_gate_updates`), and the server decides whether it will serve
-		// an unlicensed check — the response is still signature-verified.
-		if ( $this->license_gated() && ! $this->license->is_active() ) {
+		// Updates are a licensed benefit by default: never spend a request when
+		// the site is known to have no claim to one. A product distributed free
+		// of charge turns the gate off (`license_gate_updates`), and the server
+		// decides whether it will serve an unlicensed check — the response is
+		// still signature-verified.
+		//
+		// The condition is the server's last answer about UPDATES, not the
+		// license's validity, and the distinction matters: a customer waived
+		// past a gate has an invalid license and is still entitled to the
+		// check. Deciding that locally would refuse the request before the
+		// server could honour its own waiver.
+		if ( $this->license_gated() && ! $this->license->allows_updates() ) {
 			$this->logger->step( 'update.skip_unlicensed', array() );
 			$this->cache->set( self::CACHE_UPDATE, array( 'update_available' => false ), $this->negative_ttl() );
 
@@ -147,6 +154,21 @@ abstract class AbstractUpdater {
 	 */
 	protected function license_gated() {
 		return $this->product->features()->enabled( Features::LICENSE_GATE_UPDATES );
+	}
+
+	/**
+	 * Whether the server announced the release but withheld the package.
+	 *
+	 * The shape a product uses to nudge a lapsed customer: they are told a
+	 * newer build exists and left to renew for it. WordPress renders this as
+	 * "Automatic update is unavailable for this plugin" — there is no package
+	 * URL to offer — which is the correct outcome, not a failure to handle.
+	 *
+	 * @param array|null $data Update payload.
+	 * @return bool
+	 */
+	protected function package_withheld( $data ) {
+		return $this->has_update( $data ) && ! UpdateTransformer::downloads_granted( (array) $data );
 	}
 
 	/**
