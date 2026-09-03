@@ -42,6 +42,7 @@ anti-piracy, all talking to the MDS API in a controlled, performance-friendly wa
 - [Debugging](#debugging)
 - [Development](#development)
 - [Versioning](#versioning)
+- [Changelog](#changelog)
 - [License](#license)
 
 ## Feature overview
@@ -824,6 +825,17 @@ The SDK follows SemVer. The version appears in `mds-sdk.php`, `src/SDK.php`
 (`SDK::VERSION`) and [CHANGELOG.md](CHANGELOG.md), and all of them must be bumped
 together: the loader elects the copy with the highest declared version, so a
 stale value makes the correct copy lose the election.
+
+## Changelog
+
+Every notable change is recorded in [CHANGELOG.md](CHANGELOG.md), in the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+
+Any commit that **adds, removes or changes a feature, or fixes a bug** needs an
+entry under `## [Unreleased]`, in the matching group (`Added` / `Changed` /
+`Removed` / `Fixed`). **One short, summarised sentence** — no deep detail.
+Purely internal commits (refactors with no visible effect, tests, formatting)
+need no entry.
 
 ## License
 
