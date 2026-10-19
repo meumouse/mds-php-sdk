@@ -10,7 +10,7 @@ namespace MeuMouse\MDS\SDK\Api;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Carries the API error code (e.g. "FORBIDDEN") and HTTP status alongside the
+ * Carries the API error code (e.g. "LICENSE_EXPIRED", see the MDS API reference) and HTTP status alongside the
  * human-readable message, plus a flag for transport-level (network) failures so
  * callers can distinguish "server said no" from "could not reach server".
  */

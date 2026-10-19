@@ -122,8 +122,10 @@ final class Client {
 		$args['headers'] = array_merge(
 			$args['headers'],
 			array(
-				'X-Api-Key' => $this->product->api_key(),
-				'Accept'    => 'application/json',
+				'X-Api-Key'       => $this->product->api_key(),
+				'Accept'          => 'application/json',
+				// Error messages come back in the site's language (en-US when the API lacks it).
+				'Accept-Language' => str_replace( '_', '-', determine_locale() ),
 			)
 		);
 

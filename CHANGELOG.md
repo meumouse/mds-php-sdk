@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Requests send `Accept-Language` from the site locale, so MDS API error messages arrive in the site's language.
+
+### Fixed
+
+- A license the API rejects as expired is stored as expired instead of invalid, now that the API sends the `LICENSE_EXPIRED` code the SDK already checked for.
+
 ## [1.3.0] - 2026-08-27
 
 Additive on both sides, but the waivers need matching API support: `/v2/updates/validate` must return `updates_allowed` / `downloads_allowed` and `/v2/update-check` the `access` block, otherwise the SDK falls back to `is_active()` and behaves like 1.2.0.
