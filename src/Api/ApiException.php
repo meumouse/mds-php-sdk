@@ -52,11 +52,26 @@ final class ApiException extends \RuntimeException {
 	/**
 	 * True when the request never reached/parsed the API (DNS, timeout, TLS…).
 	 *
-	 * Callers use this to apply the license grace period instead of failing closed.
-	 *
 	 * @return bool
 	 */
 	public function is_transport() {
 		return $this->is_transport;
+	}
+
+	/**
+	 * True when the failure says nothing about the license: the server was
+	 * unreachable or overloaded, or what came back cannot be trusted as its answer.
+	 *
+	 * Callers use this to apply the license grace period instead of failing closed.
+	 * Unverifiable bodies belong here because they are discarded, never acted on:
+	 * the last signed status stands, and the grace period still bounds it.
+	 *
+	 * @return bool
+	 */
+	public function is_transient() {
+		return $this->is_transport
+			|| 429 === $this->status
+			|| $this->status >= 500
+			|| in_array( $this->error_code, array( 'MALFORMED_RESPONSE', 'INVALID_SIGNATURE' ), true );
 	}
 }

@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - A license the API rejects as expired is stored as expired instead of invalid, now that the API sends the `LICENSE_EXPIRED` code the SDK already checked for.
+- A 429, a 5xx, a body without the API envelope or an unverifiable signature no longer invalidates a license: they fall under the grace period, and on activation they ask to try again.
 
 ## [1.3.0] - 2026-08-27
 

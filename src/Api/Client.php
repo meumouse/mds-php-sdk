@@ -149,7 +149,9 @@ final class Client {
 
 		$decoded = json_decode( $raw_body, true );
 
-		if ( ! is_array( $decoded ) ) {
+		// JSON without the envelope is not the API speaking: a CDN or WAF in front of
+		// it answers in JSON too when asked for it, as this client does.
+		if ( ! is_array( $decoded ) || ! array_key_exists( 'success', $decoded ) ) {
 			throw new ApiException( 'Malformed API response.', 'MALFORMED_RESPONSE', $status );
 		}
 

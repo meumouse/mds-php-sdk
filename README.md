@@ -309,7 +309,7 @@ read or written, no request is made, `status()` reports `not_required` and
 **Activation** is fail-closed. The key is persisted only after a signed success
 response; the SDK then runs one `validate()` call to pull the full status
 (expiry, plan and everything else the server returns). A server rejection stores
-an `invalid` status with the server's message; a transport failure throws
+an `invalid` status with the server's message; a transient failure throws
 `ApiException` so the caller can show a "try again" message instead of marking
 the license bad.
 
@@ -321,9 +321,10 @@ the admin panel. Failure handling splits in two:
 
 - *Server rejection* (expired, forbidden, not found): the status becomes
   `expired` or `invalid` immediately.
-- *Transport failure* (DNS, timeout, TLS): the last valid status survives while
-  the grace period has not elapsed since the last successful check. After that,
-  the status degrades to `unknown` and updates stop being offered.
+- *Transient failure* (DNS, timeout, TLS, a 429 or 5xx, a body that is not the
+  API's envelope, a missing or invalid signature): the last valid status survives
+  while the grace period has not elapsed since the last successful check. After
+  that, the status degrades to `unknown` and updates stop being offered.
 
 **Status values** are `active`, `inactive`, `expired`, `invalid`, `unknown` and
 `not_required` (the product runs without licensing). `LicenseStatus` also
@@ -607,9 +608,9 @@ TLS verification and normalises the `{ success, data }` / `{ success, error }`
 envelope.
 
 `ApiResponse` exposes `data( $key = null, $default = null )`, `is_signed()` and
-`status()`. `ApiException` exposes `error_code()`, `status()` and
-`is_transport()` — the last one is what separates "server said no" from "could
-not reach the server", and therefore whether the grace period applies.
+`status()`. `ApiException` exposes `error_code()`, `status()`, `is_transport()`
+and `is_transient()` — the last one is what separates "server said no" from "no
+usable answer", and therefore whether the grace period applies.
 
 ### `Security\SignatureVerifier`
 
