@@ -122,8 +122,10 @@ final class Client {
 		$args['headers'] = array_merge(
 			$args['headers'],
 			array(
-				'X-Api-Key' => $this->product->api_key(),
-				'Accept'    => 'application/json',
+				'X-Api-Key'       => $this->product->api_key(),
+				'Accept'          => 'application/json',
+				// Error messages come back in the site's language (en-US when the API lacks it).
+				'Accept-Language' => str_replace( '_', '-', determine_locale() ),
 			)
 		);
 
@@ -135,9 +137,23 @@ final class Client {
 		}
 
 		if ( is_wp_error( $response ) ) {
-			$this->logger->error( 'api.transport', array( 'path' => $path, 'error' => $response->get_error_message() ) );
+			$context = array(
+				'wp_error_code' => method_exists( $response, 'get_error_code' ) ? (string) $response->get_error_code() : '',
+				'host'          => (string) wp_parse_url( $url, PHP_URL_HOST ),
+			);
 
-			throw new ApiException( $response->get_error_message(), 'TRANSPORT_ERROR', 0, true );
+			$exception = new ApiException( $response->get_error_message(), 'TRANSPORT_ERROR', 0, true, $context );
+
+			$this->logger->error(
+				'api.transport',
+				array(
+					'path'   => $path,
+					'reason' => $exception->reason(),
+					'error'  => $response->get_error_message(),
+				)
+			);
+
+			throw $exception;
 		}
 
 		$status   = (int) wp_remote_retrieve_response_code( $response );
@@ -147,7 +163,9 @@ final class Client {
 
 		$decoded = json_decode( $raw_body, true );
 
-		if ( ! is_array( $decoded ) ) {
+		// JSON without the envelope is not the API speaking: a CDN or WAF in front of
+		// it answers in JSON too when asked for it, as this client does.
+		if ( ! is_array( $decoded ) || ! array_key_exists( 'success', $decoded ) ) {
 			throw new ApiException( 'Malformed API response.', 'MALFORMED_RESPONSE', $status );
 		}
 
@@ -168,12 +186,22 @@ final class Client {
 		if ( $require_signature && ! $signed ) {
 			// A trusted response MUST be signed. Refuse to act on unsigned data
 			// for license-critical calls — this is the anti-"nulled" guarantee.
-			$this->logger->error( 'api.unsigned', array( 'path' => $path, 'status' => $status ) );
+			// Diagnosis only names the cause for the admin; the response is still refused.
+			$diagnosis = $this->verifier->diagnose( $raw_body, $headers );
+			$context   = array( 'signature' => $diagnosis['reason'] );
+
+			if ( isset( $diagnosis['clock_skew'] ) ) {
+				$context['clock_skew'] = $diagnosis['clock_skew'];
+			}
+
+			$this->logger->error( 'api.unsigned', array_merge( array( 'path' => $path, 'status' => $status ), $context ) );
 
 			throw new ApiException(
 				'Response signature missing or invalid.',
 				'INVALID_SIGNATURE',
-				$status
+				$status,
+				false,
+				$context
 			);
 		}
 

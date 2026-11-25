@@ -27,6 +27,18 @@ final class SignatureVerifier {
 	/** Maximum accepted clock skew between server and site, in seconds. */
 	const MAX_SKEW = 300;
 
+	/** {@see diagnose()}: ext-sodium is missing, nothing can be verified. */
+	const DIAGNOSIS_UNSUPPORTED = 'unsupported';
+
+	/** {@see diagnose()}: the response carries no signature headers. */
+	const DIAGNOSIS_MISSING = 'missing';
+
+	/** {@see diagnose()}: genuine signature, rejected only because the clocks disagree. */
+	const DIAGNOSIS_CLOCK_SKEW = 'clock_skew';
+
+	/** {@see diagnose()}: the signature does not match the body or the key. */
+	const DIAGNOSIS_INVALID = 'invalid';
+
 	/** @var string Raw (base64) ed25519 public key as configured for the product. */
 	private $public_key_b64;
 
@@ -98,6 +110,46 @@ final class SignatureVerifier {
 		} catch ( \SodiumException $e ) {
 			return false;
 		}
+	}
+
+	/**
+	 * Explain why {@see verify()} rejected a response. Diagnostic only.
+	 *
+	 * Nothing here accepts a response: it only names the cause, so a site whose
+	 * clock is wrong is told so instead of being told the server is unreachable.
+	 * Clock skew is reported only when the signature is genuine apart from its
+	 * freshness — checked by verifying it against the server's own timestamp —
+	 * so a forged timestamp header cannot produce that diagnosis.
+	 *
+	 * @param string               $raw_body Raw response body bytes.
+	 * @param array<string,string> $headers  Response headers.
+	 * @param int|null             $now      Override for "now" (testing); defaults to time().
+	 * @return array{reason:string,clock_skew?:int} `reason` is one of the DIAGNOSIS_*
+	 *         constants; `clock_skew` is the site's clock minus the server's, in seconds.
+	 */
+	public function diagnose( $raw_body, array $headers, $now = null ) {
+		if ( ! self::is_supported() ) {
+			return array( 'reason' => self::DIAGNOSIS_UNSUPPORTED );
+		}
+
+		$timestamp = $this->header( $headers, 'x-mds-timestamp' );
+
+		if ( '' === $this->header( $headers, 'x-mds-signature' ) || '' === $timestamp || '' === $this->header( $headers, 'x-mds-nonce' ) ) {
+			return array( 'reason' => self::DIAGNOSIS_MISSING );
+		}
+
+		$ts_seconds = (int) floor( ( (float) $timestamp ) / 1000 );
+		$now        = null === $now ? time() : (int) $now;
+		$skew       = $now - $ts_seconds;
+
+		if ( abs( $skew ) > self::MAX_SKEW && $this->verify( $raw_body, $headers, $ts_seconds ) ) {
+			return array(
+				'reason'     => self::DIAGNOSIS_CLOCK_SKEW,
+				'clock_skew' => $skew,
+			);
+		}
+
+		return array( 'reason' => self::DIAGNOSIS_INVALID );
 	}
 
 	/**

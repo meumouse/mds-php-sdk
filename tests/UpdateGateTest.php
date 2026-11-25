@@ -48,6 +48,7 @@ final class UpdateGateTest extends TestCase {
 		Functions\when( 'home_url' )->justReturn( 'https://example.com' );
 		Functions\when( 'get_bloginfo' )->justReturn( '6.4' );
 		Functions\when( 'wp_get_environment_type' )->justReturn( 'production' );
+		Functions\when( 'determine_locale' )->justReturn( 'pt_BR' );
 	}
 
 	protected function tearDown(): void {
@@ -84,6 +85,26 @@ final class UpdateGateTest extends TestCase {
 		$this->assertArrayNotHasKey( 'license_key', $captured );
 		$this->assertSame( 'free-plugin', $captured['product_slug'] );
 		$this->assertSame( '1.0.0', $captured['current_version'] );
+	}
+
+	public function test_requests_ask_for_errors_in_the_site_language(): void {
+		$headers = array();
+
+		Functions\expect( 'wp_remote_request' )
+			->once()
+			->andReturnUsing(
+				static function ( $url, $args ) use ( &$headers ) {
+					$headers = $args['headers'];
+
+					return array();
+				}
+			);
+
+		$this->stub_error_response();
+
+		$this->updater( array( 'mode' => Features::MODE_UPDATES_ONLY ) )->fetch();
+
+		$this->assertSame( 'pt-BR', $headers['Accept-Language'] );
 	}
 
 	public function test_gate_can_be_dropped_while_licensing_stays_on(): void {

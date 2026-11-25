@@ -42,6 +42,7 @@ anti-piracy, all talking to the MDS API in a controlled, performance-friendly wa
 - [Debugging](#debugging)
 - [Development](#development)
 - [Versioning](#versioning)
+- [Changelog](#changelog)
 - [License](#license)
 
 ## Feature overview
@@ -308,9 +309,11 @@ read or written, no request is made, `status()` reports `not_required` and
 **Activation** is fail-closed. The key is persisted only after a signed success
 response; the SDK then runs one `validate()` call to pull the full status
 (expiry, plan and everything else the server returns). A server rejection stores
-an `invalid` status with the server's message; a transport failure throws
+an `invalid` status with the server's message; a transient failure throws
 `ApiException` so the caller can show a "try again" message instead of marking
-the license bad.
+the license bad. Show `$e->user_message()` there: it names the likely cause
+(wrong site clock, missing CA certificates, blocked outgoing HTTP, timeout…)
+instead of a blanket "could not reach the licensing server".
 
 **Deactivation** is best-effort: even when the server call fails, local state is
 cleared so an administrator can re-enter a key.
@@ -320,9 +323,10 @@ the admin panel. Failure handling splits in two:
 
 - *Server rejection* (expired, forbidden, not found): the status becomes
   `expired` or `invalid` immediately.
-- *Transport failure* (DNS, timeout, TLS): the last valid status survives while
-  the grace period has not elapsed since the last successful check. After that,
-  the status degrades to `unknown` and updates stop being offered.
+- *Transient failure* (DNS, timeout, TLS, a 429 or 5xx, a body that is not the
+  API's envelope, a missing or invalid signature): the last valid status survives
+  while the grace period has not elapsed since the last successful check. After
+  that, the status degrades to `unknown` and updates stop being offered.
 
 **Status values** are `active`, `inactive`, `expired`, `invalid`, `unknown` and
 `not_required` (the product runs without licensing). `LicenseStatus` also
@@ -606,15 +610,21 @@ TLS verification and normalises the `{ success, data }` / `{ success, error }`
 envelope.
 
 `ApiResponse` exposes `data( $key = null, $default = null )`, `is_signed()` and
-`status()`. `ApiException` exposes `error_code()`, `status()` and
-`is_transport()` — the last one is what separates "server said no" from "could
-not reach the server", and therefore whether the grace period applies.
+`status()`. `ApiException` exposes `error_code()`, `status()`, `is_transport()`
+and `is_transient()` — the last one is what separates "server said no" from "no
+usable answer", and therefore whether the grace period applies. `reason()`
+narrows the failure to one of the `REASON_*` constants (`ssl`, `timeout`, `dns`,
+`blocked`, `connection`, `clock`, `sodium`, `signature`, `malformed`,
+`rate_limited`, `server`, or `api` for a refusal), `user_message()` words it
+for the site admin, and `context()` holds the details behind it.
 
 ### `Security\SignatureVerifier`
 
 `is_supported()` reports whether libsodium's detached-signature verification is
 available; `verify( $raw_body, array $headers, $now = null )` returns true only
-for a present, fresh and valid signature. See
+for a present, fresh and valid signature. `diagnose( $raw_body, array $headers,
+$now = null )` explains a rejection without ever accepting it; it reports clock
+skew only for a signature that is genuine apart from its freshness. See
 [Security and anti-piracy model](#security-and-anti-piracy-model).
 
 ### `Support\Environment`
@@ -824,6 +834,17 @@ The SDK follows SemVer. The version appears in `mds-sdk.php`, `src/SDK.php`
 (`SDK::VERSION`) and [CHANGELOG.md](CHANGELOG.md), and all of them must be bumped
 together: the loader elects the copy with the highest declared version, so a
 stale value makes the correct copy lose the election.
+
+## Changelog
+
+Every notable change is recorded in [CHANGELOG.md](CHANGELOG.md), in the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+
+Any commit that **adds, removes or changes a feature, or fixes a bug** needs an
+entry under `## [Unreleased]`, in the matching group (`Added` / `Changed` /
+`Removed` / `Fixed`). **One short, summarised sentence** — no deep detail.
+Purely internal commits (refactors with no visible effect, tests, formatting)
+need no entry.
 
 ## License
 

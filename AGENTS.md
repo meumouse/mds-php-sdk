@@ -82,6 +82,12 @@ The loader elects the embedded copy with the **highest** version — a wrong val
 - `phpunit.xml` has `failOnWarning="true"` — warnings break the suite; don't ignore them.
 - Cover especially `SignatureVerifier`, `UpdateTransformer`, and `Environment` (they already have tests — follow the pattern). Run `composer test` and `composer analyse` before finishing.
 
+## Commits
+
+- **Write commit messages in English**, in the imperative mood ("Add license revocation endpoint"), whatever language the task was discussed in.
+- **No co-authorship or attribution trailers.** No `Co-Authored-By:`, no "Generated with ..." footer — a commit has one author.
+- **Record the change in [CHANGELOG.md](CHANGELOG.md).** Any commit that adds, removes or changes a feature, or fixes a bug, gets an entry under `## [Unreleased]` in the matching group (`Added` / `Changed` / `Removed` / `Fixed`). **One short sentence, summarised** — no deep detail, no rationale essay. Purely internal commits (refactors with no visible effect, tests, formatting, chores) need no entry.
+
 ## Do not
 
 - Do not skip/weaken ed25519 signature verification.

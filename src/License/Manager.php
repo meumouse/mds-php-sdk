@@ -88,7 +88,7 @@ final class Manager {
 	 * @param string $key License key entered by the admin.
 	 * @return LicenseStatus
 	 *
-	 * @throws ApiException On transport failure (caller shows "try again").
+	 * @throws ApiException On a transient failure (caller shows "try again").
 	 */
 	public function activate( $key ) {
 		if ( ! $this->is_enabled() ) {
@@ -114,7 +114,7 @@ final class Manager {
 		try {
 			$this->client->post( '/v2/licenses/activate', $body, true );
 		} catch ( ApiException $e ) {
-			if ( $e->is_transport() ) {
+			if ( $e->is_transient() ) {
 				throw $e;
 			}
 
@@ -223,8 +223,8 @@ final class Manager {
 		try {
 			$response = $this->client->post( '/v2/updates/validate', $body, true );
 		} catch ( ApiException $e ) {
-			return $e->is_transport()
-				? $this->handle_transport_failure( $e )
+			return $e->is_transient()
+				? $this->handle_transient_failure()
 				: $this->handle_server_rejection( $e );
 		}
 
@@ -386,13 +386,12 @@ final class Manager {
 	}
 
 	/**
-	 * Network/transport failure: keep the last good status within the grace
-	 * window, otherwise degrade to invalid.
+	 * A failure that says nothing about the license: keep the last good status
+	 * within the grace window, otherwise degrade to unknown.
 	 *
-	 * @param ApiException $e Exception.
 	 * @return LicenseStatus
 	 */
-	private function handle_transport_failure( ApiException $e ) {
+	private function handle_transient_failure() {
 		$previous = $this->status();
 		$now      = time();
 		$within   = $previous->last_success_at() > 0
