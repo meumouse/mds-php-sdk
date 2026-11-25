@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `ApiException::reason()`, `::user_message()` and `::context()`, and `SignatureVerifier::diagnose()`, which name why a request failed.
+
+### Changed
+
+- A failed activation tells the admin the likely cause (wrong site clock, missing CA certificates, blocked outgoing HTTP, timeout…) instead of "Could not reach the licensing server".
+
 ## [1.3.1] - 2026-10-30
 
 ### Added

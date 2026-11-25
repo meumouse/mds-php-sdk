@@ -55,6 +55,7 @@ final class LicenseValidationTest extends TestCase {
 		Functions\when( 'wp_get_environment_type' )->justReturn( 'production' );
 		Functions\when( 'determine_locale' )->justReturn( 'pt_BR' );
 		Functions\when( '__' )->returnArg();
+		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
 		Functions\when( 'is_wp_error' )->alias(
 			static function ( $value ) {
 				return is_object( $value );
@@ -218,6 +219,46 @@ final class LicenseValidationTest extends TestCase {
 		$this->assertTrue( $manager->status()->is_valid() );
 	}
 
+	public function test_activation_names_a_wrong_site_clock(): void {
+		// Genuine answer from a server two hours ahead: the site's clock is behind.
+		$this->response = $this->signed( '{"success":true,"data":{"id":"act_1"}}', 2 * HOUR_IN_SECONDS );
+
+		$manager = $this->manager();
+
+		try {
+			$manager->activate( 'MDS-DDDD-EEEE-FFFF' );
+			$this->fail( 'An unverifiable answer must surface as an exception.' );
+		} catch ( ApiException $e ) {
+			$this->assertTrue( $e->is_transient() );
+			$this->assertSame( ApiException::REASON_CLOCK, $e->reason() );
+			$this->assertEqualsWithDelta( -2 * HOUR_IN_SECONDS, $e->context()['clock_skew'], 5 );
+		}
+
+		$this->assertSame( 'MDS-AAAA-BBBB-CCCC', $manager->get_key() );
+	}
+
+	public function test_activation_names_a_tls_failure_and_the_host(): void {
+		$this->response = new class() {
+			/** @return string */
+			public function get_error_code() {
+				return 'http_request_failed';
+			}
+
+			/** @return string */
+			public function get_error_message() {
+				return 'cURL error 60: SSL certificate problem: unable to get local issuer certificate';
+			}
+		};
+
+		try {
+			$this->manager()->activate( 'MDS-DDDD-EEEE-FFFF' );
+			$this->fail( 'A transport failure must surface as an exception.' );
+		} catch ( ApiException $e ) {
+			$this->assertSame( ApiException::REASON_SSL, $e->reason() );
+			$this->assertSame( 'mds.example.com', $e->context()['host'] );
+		}
+	}
+
 	public function test_activation_stores_a_refusal_from_the_api(): void {
 		$this->response = self::answer( 404, '{"success":false,"error":{"code":"LICENSE_NOT_FOUND","message":"Not found"}}' );
 
@@ -244,11 +285,12 @@ final class LicenseValidationTest extends TestCase {
 	/**
 	 * A 200 signed the way the API signs it.
 	 *
-	 * @param string $body Response body.
+	 * @param string $body          Response body.
+	 * @param int    $server_offset Seconds the server's clock is ahead of the site's.
 	 * @return array<string,mixed>
 	 */
-	private function signed( string $body ): array {
-		$timestamp = (string) ( time() * 1000 );
+	private function signed( string $body, int $server_offset = 0 ): array {
+		$timestamp = (string) ( ( time() + $server_offset ) * 1000 );
 		$nonce     = 'nonce';
 		$signature = sodium_crypto_sign_detached(
 			$timestamp . '.' . $nonce . '.' . hash( 'sha256', $body ),

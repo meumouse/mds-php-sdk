@@ -174,7 +174,8 @@ final class LicenseSettings {
 					: ( '' !== $status->message() ? $status->message() : __( 'License activation failed.', 'mds-sdk' ) )
 			);
 		} catch ( ApiException $e ) {
-			$this->set_notice( 'error', __( 'Could not reach the licensing server. Please try again.', 'mds-sdk' ) );
+			// Name the cause (clock, SSL, firewall…) instead of a blanket "could not reach".
+			$this->set_notice( 'error', $e->user_message() );
 		}
 
 		$this->redirect_back();

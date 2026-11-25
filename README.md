@@ -311,7 +311,9 @@ response; the SDK then runs one `validate()` call to pull the full status
 (expiry, plan and everything else the server returns). A server rejection stores
 an `invalid` status with the server's message; a transient failure throws
 `ApiException` so the caller can show a "try again" message instead of marking
-the license bad.
+the license bad. Show `$e->user_message()` there: it names the likely cause
+(wrong site clock, missing CA certificates, blocked outgoing HTTP, timeout…)
+instead of a blanket "could not reach the licensing server".
 
 **Deactivation** is best-effort: even when the server call fails, local state is
 cleared so an administrator can re-enter a key.
@@ -610,13 +612,19 @@ envelope.
 `ApiResponse` exposes `data( $key = null, $default = null )`, `is_signed()` and
 `status()`. `ApiException` exposes `error_code()`, `status()`, `is_transport()`
 and `is_transient()` — the last one is what separates "server said no" from "no
-usable answer", and therefore whether the grace period applies.
+usable answer", and therefore whether the grace period applies. `reason()`
+narrows the failure to one of the `REASON_*` constants (`ssl`, `timeout`, `dns`,
+`blocked`, `connection`, `clock`, `sodium`, `signature`, `malformed`,
+`rate_limited`, `server`, or `api` for a refusal), `user_message()` words it
+for the site admin, and `context()` holds the details behind it.
 
 ### `Security\SignatureVerifier`
 
 `is_supported()` reports whether libsodium's detached-signature verification is
 available; `verify( $raw_body, array $headers, $now = null )` returns true only
-for a present, fresh and valid signature. See
+for a present, fresh and valid signature. `diagnose( $raw_body, array $headers,
+$now = null )` explains a rejection without ever accepting it; it reports clock
+skew only for a signature that is genuine apart from its freshness. See
 [Security and anti-piracy model](#security-and-anti-piracy-model).
 
 ### `Support\Environment`
