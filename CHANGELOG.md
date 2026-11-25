@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-24
+
 ### Added
 
 - `ApiException::reason()`, `::user_message()` and `::context()`, and `SignatureVerifier::diagnose()`, which name why a request failed.
@@ -101,7 +103,8 @@ Additive on both sides, but the waivers need matching API support: `/v2/updates/
 - Reusable, overridable admin interface (license panel, rollback list, notices)
 - PHPUnit test suite and CI for PHP 7.4–8.3
 
-[Unreleased]: https://github.com/meumouse/mds-php-sdk/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/meumouse/mds-php-sdk/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/meumouse/mds-php-sdk/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/meumouse/mds-php-sdk/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/meumouse/mds-php-sdk/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/meumouse/mds-php-sdk/compare/v1.1.0...v1.2.0
